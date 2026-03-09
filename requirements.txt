@@ -1,0 +1,2 @@
+# After the installation of the files via `pip install` (packages) we will use `pip freeze`. 
+# Then it will automatically takes the required version for each packages and write it to requirements.txt
