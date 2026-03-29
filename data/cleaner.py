@@ -62,7 +62,7 @@ if __name__ == "__main__":
         
         # Kural 1: Index = Date
         is_date_index = isinstance(log_returns_df.index, pd.DatetimeIndex)
-        print(f"Kural 1 | İndeks Tarih mi? (Index = Date)  : {'Geçti...' if is_date_index else 'Kaldi '}")
+        print(f"Kural 1 | İndeks Tarih mi?. (Index = Date)  : {'Geçti...' if is_date_index else 'Kaldi '}")
         
         # Kural 2: Columns = Tickers
         print(f"Kural 2 | Kolonlar Hisse mi? (Cols=Tickers): Geçti... -> {list(log_returns_df.columns)[:5]}...")
