@@ -1,32 +1,42 @@
 import streamlit as st
+from api_client import get_returns, get_volatility, get_backtest
+from components import line_chart, multi_line_chart, summary_table
 
-# 1. Sayfa Yapılandırması
-st.set_page_config(page_title="Volatility Risk Monitor", layout="wide")
+# Sayfa Ayarları
+st.set_page_config(page_title="Skorix Finansal Analiz", layout="wide")
 
-# 2. Sidebar - Ticker Selector (İstenen yeni madde)
-st.sidebar.title("🔍 Ayarlar")
-ticker = st.sidebar.text_input("Hisse/Kripto Sembolü Girin:", value="BTC-USD")
+# Sidebar - Ticker ve Navigasyon
+st.sidebar.title("Skorix Kontrol Paneli")
+ticker = st.sidebar.text_input("Hisse Sembolü Giriniz:", value="AAPL")
 
-st.sidebar.markdown("---")
+page = st.sidebar.radio(
+    "Analiz Türü Seçin:",
+    ["Returns (Getiriler)", "Volatility (Oynaklık)", "Risk Metrics", "Backtest"]
+)
 
-# 3. Sidebar - Navigation (Tam olarak istenen 4 sayfa ismi)
-st.sidebar.title("📊 Navigasyon")
-menu = ["Returns", "Volatility", "Risk Metrics", "Backtest"]
-choice = st.sidebar.selectbox("Sayfa Seçin:", menu)
+# --- SAYFA İÇERİKLERİ ---
 
-# 4. Sayfa İçerikleri (Placeholder - Sadece Başlıklar)
-if choice == "Returns":
-    st.title("📈 Returns (Getiriler)")
-    st.write(f"{ticker} için getiri analizi burada yer alacak.")
+if page == "Returns (Getiriler)":
+    st.title(f"{ticker} - Getiri Analizi")
+    # API'den veriyi alıyoruz
+    df = get_returns(ticker)
+    # Component kullanarak tekli grafik çiziyoruz
+    line_chart(df, x="date", y="value", title=f"{ticker} - Günlük Log Returns")
 
-elif choice == "Volatility":
-    st.title("📉 Volatility (Oynaklık)")
-    st.write(f"{ticker} için volatilite hesaplamaları.")
+elif page == "Volatility (Oynaklık)":
+    st.title(f"{ticker} - Oynaklık Analizi")
+    # API'den veriyi alıyoruz
+    df = get_volatility(ticker)
+    # Component kullanarak çoklu grafik çiziyoruz (EWMA, GARCH, Forecast)
+    multi_line_chart(df, x="date", y_cols=["EWMA", "GARCH", "Forecast"], title=f"{ticker} Volatilite Karşılaştırması")
 
-elif choice == "Risk Metrics":
-    st.title("⚖️ Risk Metrics (Risk Metrikleri)")
-    st.write("VaR ve Sharpe oranları.")
+elif page == "Risk Metrics":
+    st.title(f"{ticker} - Risk Metrikleri")
+    st.info("Bu sayfa bir sonraki aşamada tamamlanacak.")
 
-elif choice == "Backtest":
-    st.title("🔄 Backtest")
-    st.write("Strateji test sonuçları.")
+elif page == "Backtest":
+    st.title(f"{ticker} - Strateji Testi")
+    # API'den veriyi alıyoruz
+    df = get_backtest(ticker)
+    # Component kullanarak tabloyu gösteriyoruz
+    summary_table(df, title=f"{ticker} Backtest Sonuç Tablosu")
