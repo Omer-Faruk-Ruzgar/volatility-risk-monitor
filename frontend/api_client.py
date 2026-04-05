@@ -1,34 +1,68 @@
 import pandas as pd
 import numpy as np
-from datetime import datetime, timedelta
+from datetime import datetime
+
+BACKEND_URL = "http://localhost:8000"
 
 # 1. get_assets() - Ticker listesi döner
-def get_assets():
-    """Kullanıcının seçebileceği sembol listesini döner."""
-    return ["BTC-USD", "ETH-USD", "SOL-USD", "XRP-USD", "AAPL", "TSLA"]
+def get_assets() -> list:
+    """Kullanılabilir varlıkların listesini döner."""
+    # TODO: Backend hazır olunca:
+    # import requests
+    # return requests.get(f"{BACKEND_URL}/assets").json()
+    
+    return ["AAPL", "MSFT", "TSLA", "BTC-USD", "THYAO", "EREGL"]
 
 # 2. get_returns(ticker, period) - Tarih/Değer çiftleri döner
-def get_returns(ticker, period="1Y"):
-    """Seçilen periyotta fiyat/getiri verisi döner."""
-    dates = pd.date_range(end=datetime.now(), periods=100).strftime('%Y-%m-%d').tolist()
-    values = np.cumsum(np.random.normal(0, 0.02, 100)).tolist() # Sahte getiri verisi
-    return {"dates": dates, "values": values}
+def get_returns(ticker, period="1Y") -> pd.DataFrame:
+    """Hisse senedi getiri verilerini DataFrame olarak döner."""
+    # TODO: Backend hazır olunca:
+    # import requests
+    # response = requests.get(f"{BACKEND_URL}/returns", params={"ticker": ticker})
+    # return pd.DataFrame(response.json()) 
+
+    # Mock Data Oluşturma
+    np.random.seed(42)
+    dates = pd.date_range(end=datetime.now(), periods=100, freq="B")
+    values = np.random.normal(0.001, 0.02, 100).cumsum() 
+    
+    return pd.DataFrame({"date": dates, "value": values})
 
 # 3. get_volatility(ticker) - EWMA, GARCH, Forecast döner
-def get_volatility(ticker):
-    """Volatilite modellerinin sonuçlarını döner."""
-    return {
-        "EWMA": 0.025,
-        "GARCH": 0.028,
-        "Forecast": 0.030
-    }
+def get_volatility(ticker) -> pd.DataFrame:
+    """Volatilite modellerinin sonuçlarını DataFrame olarak döner."""
+    # TODO: Backend hazır olunca:
+    # import requests
+    # response = requests.get(f"{BACKEND_URL}/volatility", params={"ticker": ticker})
+    # return pd.DataFrame(response.json())
+
+    np.random.seed(42)
+    dates = pd.date_range(end=datetime.now(), periods=100, freq="B")
+    
+    return pd.DataFrame({
+        "date": dates,
+        "EWMA": np.abs(np.random.normal(0.02, 0.005, 100)),
+        "GARCH": np.abs(np.random.normal(0.025, 0.005, 100)),
+        "Forecast": np.abs(np.random.normal(0.028, 0.005, 100))
+    })
 
 # 4. get_backtest(ticker, method) - Backtest istatistikleri döner
-def get_backtest(ticker, method="Historical"):
-    """Backtest sonuçlarını ve istatistiklerini döner."""
-    return {
-        "Total Return": "%15.4",
-        "Max Drawdown": "-%5.2",
-        "Sharpe Ratio": 1.95,
-        "Success": True
-    }
+def get_backtest(ticker, method="Historical") -> pd.DataFrame:
+    """Backtest sonuçlarını ve VaR eşiklerini DataFrame olarak döner."""
+    # TODO: Backend hazır olunca:
+    # import requests
+    # response = requests.get(f"{BACKEND_URL}/backtest", params={"ticker": ticker, "method": method})
+    # return pd.DataFrame(response.json())
+
+    np.random.seed(42) 
+    dates = pd.date_range(end=datetime.now(), periods=100, freq="B")
+    returns = np.random.normal(0, 0.02, 100)
+    var_line = np.full(100, -0.032) # %95 güven aralığı VaR eşiği
+    breach = returns < var_line
+
+    return pd.DataFrame({
+        "date": dates,
+        "return": returns,
+        "var": var_line,
+        "breach": breach
+    })
