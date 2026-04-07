@@ -13,9 +13,14 @@ def run_pipeline():
     print(" Pipeline başlatiliyor...\n")
 
     # 1. AŞAMA: VERİ ÇEKME (Fetcher)
-    target_tickers = ['AAPL', 'MSFT', 'JPM', 'GLD', 'SPY', 'GOOGL', 'AMZN', 'BRK-B', 'XOM', 'TLT']
+    target_tickers = [
+        'XOM', 'CVX', 'USO', 'BNO', 'XLE', 'UNG', 
+        'KSA', 'GLD', 'WEAT', 'TLT', 'SPY'
+    ]
     print(" Yahoo Finance üzerinden ham veriler çekiliyor...")
-    raw_data = fetch_data(tickers=target_tickers, period="5y")
+    
+    # Periyodu "5y" yerine "10y" olarak güncelledik
+    raw_data = fetch_data(tickers=target_tickers, period="10y")
     
     if raw_data is None or raw_data.empty:
         print(" Hata: Veri çekilemedi. İşlem iptal ediliyor...")
