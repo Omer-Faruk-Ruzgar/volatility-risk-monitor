@@ -21,7 +21,7 @@ if page == "Returns (Getiriler)":
     # API'den veriyi alıyoruz
     df = get_returns(ticker)
     # Component kullanarak tekli grafik çiziyoruz
-    line_chart(df, x="date", y="value", title=f"{ticker} - Günlük Log Returns")
+    line_chart(df, x="date", y="log_return", title=f"{ticker} - Günlük Log Returns")
 
 elif page == "Volatility (Oynaklık)":
     st.title(f"{ticker} - Oynaklık Analizi")

@@ -4,54 +4,63 @@ import yfinance as yf
 import pandas as pd
 
 def fetch_data(tickers, period="5y"):
-   
+    """
+    Yahoo Finance kullanarak belirtilen hisse sembolleri için geçmiş piyasa verilerini çeker.
+    
+    Parametreler:
+    - tickers (list veya str): Hisse/Varlik sembolleri (Örn: 'AAPL' veya ['AAPL', 'MSFT']).
+    - period (str): Verinin kapsayacaği zaman araliği (Örn: '1mo', '1y', '5y').
+    
+    Döndürür:
+    - pandas.DataFrame: Geçmiş fiyat verilerini içeren DataFrame veya hata durumunda None.
+    """
     try:
-        print(f"Fetching data from internet... Tickers: {tickers} | Period: {period}")
+        print(f"İnternetten veri çekiliyor... Semboller: {tickers} | Periyot: {period}")
         
-        # Download data using yfinance
+        # yfinance kullanarak veriyi indir
         data = yf.download(tickers, period=period)
         
-        # Check if the fetched data is empty 
+        # Çekilen verinin boş olup olmadığını kontrol et 
         if data.empty:
-            print("Warning: No data found for the requested period or ticker symbol is invalid.")
+            print("Uyari: İstenen periyot için veri bulunamadi veya hisse sembolü geçersiz...")
             return None
             
-        print("Data fetched successfully!")
+        print("Veri başariyla çekildi!..")
         return data
         
     except Exception as e:
-        print(f"A system error occurred while fetching data: {e}")
+        print(f"Veri çekilirken sistemsel bir hata oluştu: {e}")
         return None
 
 if __name__ == "__main__":
-    # 1. Define the list of 10 target tickers
+    # 10 hedef hisse senedi sembolünü tanımla
     target_tickers = ['AAPL', 'MSFT', 'JPM', 'GLD', 'SPY', 'GOOGL', 'AMZN', 'BRK-B', 'XOM', 'TLT']
     
-    # Fetch 5 years of historical data
+    # 5 yıllık geçmiş veriyi çek
     portfolio_data = fetch_data(tickers=target_tickers, period="5y")
     
     if portfolio_data is not None:
-        # --- TASK 1: Save the raw output locally as a CSV ---
+        # --- GÖREV 1: Ham çıktıyı yerel olarak CSV formatında kaydet ---
         
-        # Create 'raw' directory inside the 'data' folder if it doesn't exist
+        # 'data' klasörü içinde 'raw' klasörü yoksa oluştur
         os.makedirs("data/raw", exist_ok=True)
         
-        # Save the DataFrame to a CSV file
+        # DataFrame'i bir CSV dosyasına kaydet
         csv_path = "data/raw/raw_portfolio_data.csv"
         portfolio_data.to_csv(csv_path)
-        print(f"\n✅ SUCCESS: Raw data saved to '{csv_path}'.")
+        print(f"\n BAŞARILI: Ham veri '{csv_path}' konumuna kaydedildi...")
         
         
-        # --- TASK 2: Verify that no ticker returned empty data ---
+        # --- GÖREV 2: Hiçbir hissenin boş veri döndürmediğini doğrula ---
         
         empty_tickers = []
-        # Iterate through each requested ticker
+        # İstek atılan her bir hisse için döngü oluştur
         for ticker in target_tickers:
-            # Check if all 'Close' prices for the ticker are NaN (empty)
+            # Hisseye ait tüm 'Close' (Kapanış) fiyatları NaN (boş) mu diye kontrol et
             if portfolio_data['Close'][ticker].isna().all():
                 empty_tickers.append(ticker)
                 
         if len(empty_tickers) == 0:
-            print("✅ VERIFICATION: All tickers have data. No empty columns found!")
+            print(" DOĞRULAMA: Tüm hisselerin verisi var. Boş sütun bulunamadi!..")
         else:
-            print(f"❌ WARNING: The following tickers returned empty data: {empty_tickers}")
+            print(f" UYARI: Aşağidaki hisseler boş veri döndürdü: {empty_tickers}")
