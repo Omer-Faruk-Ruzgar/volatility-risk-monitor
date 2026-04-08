@@ -33,11 +33,28 @@ def fetch_data(tickers, period="5y"):
         return None
 
 if __name__ == "__main__":
-    # 10 hedef hisse senedi sembolünü tanımla
-    target_tickers = ['AAPL', 'MSFT', 'JPM', 'GLD', 'SPY', 'GOOGL', 'AMZN', 'BRK-B', 'XOM', 'TLT']
+    target_tickers = [
+        # Çekirdek Enerji
+        'XOM',   # ExxonMobil - büyük petrol üreticisi
+        'CVX',   # Chevron - karşılaştırma için
+        'USO',   # WTI ham petrol ETF - direkt petrol fiyatı
+        'BNO',   # Brent ham petrol ETF - Avrupa/Orta Doğu kıyaslaması
+        'XLE',   # Enerji sektörü ETF - genel sektör
+        'UNG',   # Doğalgaz ETF - savaş kaynaklı gaz şoku
+        # Orta Doğu
+        'KSA',   # iShares MSCI Suudi Arabistan ETF - jeopolitik risk proxy
+        # Hammadde
+        'GLD',   # Altın ETF - çatışma döneminde güvenli liman
+        'WEAT',  # Buğday ETF - Ukrayna savaşı gıda şoku
+        # Makro / Baseline
+        'TLT',   # Uzun vadeli tahvil ETF - riskten kaçış sinyali
+        'SPY',   # S&P 500 - piyasa bazı karşılaştırma
+    ]
     
-    # 5 yıllık geçmiş veriyi çek
-    portfolio_data = fetch_data(tickers=target_tickers, period="5y")
+    # 10 yıllık geçmiş veriyi çek (Krizleri kapsayacak şekilde)
+    portfolio_data = fetch_data(tickers=target_tickers, period="10y")
+
+
     
     if portfolio_data is not None:
         # --- GÖREV 1: Ham çıktıyı yerel olarak CSV formatında kaydet ---
