@@ -216,6 +216,7 @@ data/*.csv		# any CSV files inside data/ folder
 data/*.db		# the SQLite database - regenerated bt pipeline.py
 *.db			# any database file anywhere in the project
 *.sqlite		# same but .sqlite extension
+data/market.db
 		
 models/saved/		# folder where trained XGBoost models get saved
 *.pkl			# saved model files (pickle format)
