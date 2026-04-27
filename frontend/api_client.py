@@ -26,7 +26,7 @@ def get_returns(ticker, period="1Y") -> pd.DataFrame:
     dates = pd.date_range(end=datetime.now(), periods=100, freq="B")
     values = np.random.normal(0.001, 0.02, 100).cumsum() 
     
-    return pd.DataFrame({"date": dates, "value": values})
+    return pd.DataFrame({"date": dates, "log_return": values})
 
 # 3. get_volatility(ticker) - EWMA, GARCH, Forecast döner
 def get_volatility(ticker) -> pd.DataFrame:
