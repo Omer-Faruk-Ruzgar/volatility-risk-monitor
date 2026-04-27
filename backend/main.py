@@ -5,6 +5,11 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from backend.routers import router
+import pandas as pd
+from pathlib import Path
+from sqlalchemy import create_engine
+from apscheduler.schedulers.background import BackgroundScheduler
+from data.pipeline import run_pipeline
 
 # FastAPI uygulama örneğini oluşturuyoruz.
 # title ve version, /docs adresindeki otomatik dokümantasyonda görünür.
@@ -31,13 +36,76 @@ app.add_middleware(
 # Örnek: @router.get('/assets') GET /api/assets olur.
 app.include_router(router, prefix = '/api')
 
-# Health Endpoint
-# /health, sunucunun çalışıp çalışmadığını kontrol eden basit bir endpoint'tir.
-# Hiçbir iş mantığı içermez, sadece {"status": "ok"} döndürür.
-# Bir şeyler çalışmıyorsa ilk kontrol edilecek yer burasıdır:
-# curl http://localhost:8000/health
-# Eğer bu başarısız olursa backend çalışmıyor demektir.
-# Eğer bu çalışıyorsa ama diğer endpoint'ler çalışmıyorsa sorun endpoint'tedir diyebiliriz.
-@app.get('/health')
-def health():
-    return {'status': 'ok'}
+
+
+#  APSCHEDULER VE API ENDPOINT İÇİN EKLENMİŞTİR
+
+
+# Zamanlayıcı (APScheduler) Ayarları
+scheduler = BackgroundScheduler(timezone="UTC")
+
+@app.on_event("startup")
+def start_scheduler():
+    """Uygulama ayağa kalktiğinda zamanlayiciyi başlatir."""
+    
+    # Yaz saati: NYSE 21:00 UTC kapanır, 21:30'da güncelle
+    scheduler.add_job(
+        lambda: run_pipeline(update=True),
+        'cron', hour=21, minute=30,
+        month='3-11',      # Mart-Kasım arası
+        id='update_summer'
+    )
+
+    # Kış saati: NYSE 22:00 UTC kapanır, 22:30'da güncelle
+    scheduler.add_job(
+        lambda: run_pipeline(update=True),
+        'cron', hour=22, minute=30,
+        month='11,12,1,2', # Kasım-Şubat arası
+        id='update_winter'
+    )
+    
+    scheduler.start()
+    print("APScheduler aktif: Yaz/Kiş saati görevleri arka planda dinleniyor...")
+
+
+# Data Status Endpoint'i
+@app.get("/api/data-status")
+def get_data_status():
+    """ JSON formatinda durum raporu döndüren Endpoint."""
+    
+    # GÜVENLİ DOSYA YOLU BULMA:
+    base_dir = Path(__file__).resolve().parent.parent
+    db_path = base_dir / 'data' / 'market.db'
+    
+    try:
+        engine = create_engine(f"sqlite:///{db_path.as_posix()}")
+        
+        # Son tarihi çek ve sadece ilk 10 karakterini al (Örn: "2026-04-27")
+        raw_date = str(pd.read_sql("SELECT MAX(Date) FROM log_returns", engine).iloc[0, 0])
+        last_update = raw_date[:10]
+        total_rows = pd.read_sql("SELECT COUNT(*) FROM log_returns", engine).iloc[0, 0]
+        
+        columns = pd.read_sql("PRAGMA table_info(log_returns)", engine)['name'].tolist()
+        tickers_count = len([col for col in columns if col != 'Date'])
+        
+    except Exception as e:
+        last_update = "Bulunamadi..."
+        total_rows = 0
+        tickers_count = 0
+
+    next_run = None
+    summer_job = scheduler.get_job('update_summer')
+    winter_job = scheduler.get_job('update_winter')
+    
+    if summer_job and summer_job.next_run_time:
+        next_run = summer_job.next_run_time
+    if winter_job and winter_job.next_run_time:
+        if next_run is None or winter_job.next_run_time < next_run:
+            next_run = winter_job.next_run_time
+
+    return {
+        "last_update": f"{last_update}T21:30:00Z" if last_update != "Bulunamadi..." else None,
+        "total_rows": int(total_rows),
+        "tickers": int(tickers_count),
+        "next_scheduled": next_run.strftime("%Y-%m-%dT%H:%M:%SZ") if next_run else None
+    }
