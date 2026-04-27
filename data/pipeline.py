@@ -3,8 +3,8 @@ from pathlib import Path
 from sqlalchemy import create_engine
 
 #  fonksiyonları içeri aktarıyoruz
-from fetcher import fetch_data
-from cleaner import clean, compute_returns
+from data.fetcher import fetch_data
+from data.cleaner import clean, compute_returns
 
 def run_pipeline():
     """
