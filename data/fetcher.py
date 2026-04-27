@@ -3,7 +3,7 @@ import os
 import yfinance as yf
 import pandas as pd
 
-def fetch_data(tickers, period="5y", start=None):
+def fetch_data(tickers, period="10y", start=None):
     """
     Yahoo Finance kullanarak belirtilen hisse sembolleri için geçmiş piyasa verilerini çeker.
     
