@@ -66,3 +66,21 @@ def get_backtest(ticker, method="Historical") -> pd.DataFrame:
         "var": var_line,
         "breach": breach
     })
+
+
+def get_portfolio_analysis(tickers, weights) -> dict:
+    """Seçilen varlıklar ve ağırlıklara göre portföy analizi döner."""
+    # TODO: Backend entegrasyonu
+    # response = requests.post(f"{BACKEND_URL}/portfolio", json={"tickers": tickers, "weights": weights})
+    
+    # Mock Data: Gerçekçi portföy sonuçları
+    return {
+        "VaR": -0.0245,
+        "ES": -0.0312,
+        "Diversification_Effect": 0.005,
+        "Correlation_Matrix": pd.DataFrame(
+            np.random.uniform(0.3, 0.8, (len(tickers), len(tickers))),
+            index=tickers,
+            columns=tickers
+        )
+    }
