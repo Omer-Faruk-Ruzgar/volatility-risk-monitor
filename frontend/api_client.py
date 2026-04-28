@@ -43,7 +43,8 @@ def get_volatility(ticker) -> pd.DataFrame:
         "date": dates,
         "EWMA": np.abs(np.random.normal(0.02, 0.005, 100)),
         "GARCH": np.abs(np.random.normal(0.025, 0.005, 100)),
-        "Forecast": np.abs(np.random.normal(0.028, 0.005, 100))
+        "Forecast": np.abs(np.random.normal(0.028, 0.005, 100)),
+        "LSTM": np.random.uniform(0.1, 0.3, 100)
     })
 
 # 4. get_backtest(ticker, method) - Backtest istatistikleri döner

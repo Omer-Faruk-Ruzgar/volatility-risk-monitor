@@ -1,4 +1,6 @@
 import streamlit as st
+import pandas as pd
+import numpy as np 
 from api_client import get_returns, get_volatility, get_backtest, get_assets, get_portfolio_analysis
 from components import line_chart, multi_line_chart, summary_table
 
@@ -73,11 +75,46 @@ elif page == "Returns (Getiriler)":
     # y="value" 
     
     line_chart(df, x="date", y="log_return", title=f"{ticker} - Günlük Logaritmik Getiriler")
+
+
 elif page == "Volatility (Oynaklık)":
     st.title(f"{ticker} - Oynaklık Analizi")
     df = get_volatility(ticker)
-    multi_line_chart(df, x="date", y_cols=["EWMA", "GARCH", "Forecast"], title=f"{ticker} Volatilite Modelleri Karşılaştırması")
+    
+    # 1. Grafik: LSTM artık y_cols listesinde
+    multi_line_chart(
+        df, 
+        x="date", 
+        y_cols=["EWMA", "GARCH", "Forecast", "LSTM"], 
+        title=f"{ticker} Volatilite Modelleri Karşılaştırması"
+    )
 
+    st.divider()
+    
+    # 2. Model Karşılaştırma Tablosu
+    st.subheader("Model Performans Kıyaslaması")
+    
+    try:
+        # Dosyayı okuma
+        import os
+        csv_path = "experiments/model_comparison.csv"
+        
+        if os.path.exists(csv_path):
+            comparison_df = pd.read_csv(csv_path)
+            st.table(comparison_df)
+        else:
+            # Dosya yoksa boş/mock tablo 
+            mock_comparison = pd.DataFrame({
+                "Model": ["EWMA", "GARCH", "Forecast", "LSTM"],
+                "RMSE": [0.012, 0.011, 0.009, "Bekleniyor..."],
+                "Naive'e göre iyileşme": ["%2", "%5", "%12", "-"],
+                "DM p-value": [0.45, 0.04, 0.01, "-"]
+            })
+            st.warning("Model karşılaştırma sonuçları (experiments/model_comparison.csv) henüz hazır değil. Örnek veriler gösteriliyor.")
+            st.dataframe(mock_comparison, use_container_width=True)
+            
+    except Exception as e:
+        st.error(f"Tablo yüklenirken bir hata oluştu: {e}")
 elif page == "Backtest":
     st.title(f"{ticker} - Strateji Backtest")
     df = get_backtest(ticker)
