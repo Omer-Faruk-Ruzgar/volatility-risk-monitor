@@ -1,5 +1,5 @@
 import streamlit as st
-from api_client import get_returns, get_volatility, get_backtest
+from api_client import get_returns, get_volatility, get_backtest, get_assets, get_portfolio_analysis
 from components import line_chart, multi_line_chart, summary_table
 
 # Sayfa Ayarları - Browser sekmesinde görünecek isim
@@ -9,7 +9,7 @@ st.set_page_config(page_title="Volatility Risk Monitor", layout="wide")
 st.sidebar.title("Volatility Risk Monitor")
 page = st.sidebar.radio(
     "Gezinti:",
-    ["Ana Sayfa", "Returns (Getiriler)", "Volatility (Oynaklık)", "Risk Metrics", "Backtest"]
+    ["Ana Sayfa", "Returns (Getiriler)", "Volatility (Oynaklık)","Portföy Yönetimi", "Risk Metrics", "Backtest"]
 )
 
 # Ticker girişi sadece analiz sayfalarında görünsün
@@ -82,3 +82,43 @@ elif page == "Backtest":
     st.title(f"{ticker} - Strateji Backtest")
     df = get_backtest(ticker)
     summary_table(df, title=f"{ticker} Backtest ve VaR İhlal Tablosu")
+
+elif page == "Portföy Yönetimi":
+    st.title("Portföy Risk Analizi")
+    
+    # 1. Ticker Seçimi
+    assets = get_assets()
+    selected_tickers = st.multiselect("Portföye Varlık Ekleyin:", assets, default=["AAPL", "MSFT"])
+    
+    if selected_tickers:
+        st.subheader("Varlık Ağırlıkları")
+        weights = []
+        cols = st.columns(len(selected_tickers))
+        
+        for i, ticker in enumerate(selected_tickers):
+            with cols[i]:
+                weight = st.slider(f"{ticker} (%)", 0, 100, 50) / 100
+                weights.append(weight)
+        
+        total_weight = sum(weights)
+        
+        # 2. Ağırlık Kontrol Göstergesi
+        if abs(total_weight - 1.0) < 1e-9:
+            st.success(f"Toplam Ağırlık: %{total_weight*100:.0f}")
+            if st.button("Portföyü Analiz Et"):
+                data = get_portfolio_analysis(selected_tickers, weights)
+                
+                # 3. Metrik Kartları
+                st.divider()
+                c1, c2, c3 = st.columns(3)
+                c1.metric("Portföy VaR (%95)", f"{data['VaR']:.2%}")
+                c2.metric("Expected Shortfall (ES)", f"{data['ES']:.2%}")
+                c3.metric("Çeşitlendirme Etkisi", f"+{data['Diversification_Effect']:.2%}")
+                
+                # 4. Isı Haritası (Korelasyon Matrisi)
+                st.subheader("Korelasyon Matrisi")
+                st.dataframe(data['Correlation_Matrix'].style.background_gradient(cmap='Blues'), use_container_width=True)
+        else:
+            st.error(f"Toplam Ağırlık: %{total_weight*100:.0f}  (Toplam 100 olmalı!)")
+    else:
+        st.info("Lütfen analiz için en az bir varlık seçin.")
