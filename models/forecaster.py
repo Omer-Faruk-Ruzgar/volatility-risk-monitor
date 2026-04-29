@@ -52,7 +52,7 @@ def build_features(returns: pd.Series, lags: int = 5) -> pd.DataFrame:
 
     # Bir sonraki günün mutlak getirisi (|return|), 
     # gerçekleşmiş volatilite (realised volatility) için bir yaklaşım (proxy) olarak kullanılır.
-    df["target"] = returns.abs().shift(-1)
+    df["target"] = returns.rolling(5).std().shift(-5) * np.sqrt(252)
 
     df.dropna(inplace=True)
     return df
