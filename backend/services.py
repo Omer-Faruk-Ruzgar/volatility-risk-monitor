@@ -31,25 +31,32 @@ def _load_returns(ticker: str) -> pd.Series:
     """
     db_path = Path(__file__).resolve().parent.parent / "data" / "market.db"
  
-    if not db_path.exists():
+    if not db_path.exists() or db_path.stat().st_size == 0:
         raise FileNotFoundError(
             "market.db bulunamadı. Önce `python -m data.pipeline` komutunu çalıştırın."
         )
  
     engine = create_engine(f"sqlite:///{db_path.as_posix()}")
-    df = pd.read_sql(
-        "SELECT * FROM log_returns",
-        engine,
-        index_col="Date",
-        parse_dates=["Date"],
-    )
- 
+    
+    try:
+        df = pd.read_sql(
+            "SELECT * FROM log_returns",
+            engine,
+            index_col="Date",
+            parse_dates=["Date"],
+        )
+    except Exception:
+        raise FileNotFoundError(
+            "market.db içinde 'log_returns' tablosu bulunamadı. "
+            "Önce python -m data.pipeline komutunu çalıştırın."
+        )
+
     if ticker not in df.columns:
         raise ValueError(
             f"'{ticker}' veritabanında bulunamadı. "
             f"Mevcut ticker'lar: {list(df.columns)}"
         )
- 
+
     return df[ticker].dropna()
  
 

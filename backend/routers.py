@@ -29,11 +29,13 @@ def get_assets():
 
 @router.get("/returns", response_model=ReturnsResponse)
 def returns_endpoint(ticker: str):
-    """Bir ticker'ın tüm log getiri serisini döndürür."""
     try:
         return services.get_returns(ticker)
     except (FileNotFoundError, ValueError) as e:
         raise HTTPException(status_code=404, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))  # bu satırı ekle
+
 
 @router.get("/var", response_model=VaRResponse)
 def var_endpoint(
@@ -69,7 +71,12 @@ def es_endpoint(
 
 @router.get("/volatility", response_model=VolatilityResponse)
 def volatility_endpoint(ticker: str):
-    return services.get_volatility(ticker)
+    try:
+        return services.get_volatility(ticker)
+    except (FileNotFoundError, ValueError) as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))  # bu satırı ekle
 
 # --- ÖNBELLEK YÖNETİM ENDPOINT'LERİ (Issue #29) ---
 

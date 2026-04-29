@@ -44,7 +44,7 @@ def fit_garch(returns:pd.Series, p: int = 1, q: int =1) -> object:
     
     return result
 
-def garch_volatility(retunrs: pd.Series, annualise: bool = True) -> pd.Series:
+def garch_volatility(returns: pd.Series, annualise: bool = True) -> pd.Series:
     """
     fit_garch'ı çağırır sonrasında modelin her gün için ürettiği koşulluğu volatiliteyi (conditional volatility) alır 
     ve bir pd.Series olarak döndürür. Yani "geçmişe dönük, her gün için volatilite neydi?" sorusunu yanıtlıyor.
