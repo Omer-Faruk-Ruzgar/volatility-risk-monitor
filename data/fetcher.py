@@ -3,33 +3,37 @@ import os
 import yfinance as yf
 import pandas as pd
 
-def fetch_data(tickers, period="5y"):
+def fetch_data(tickers, period="10y", start=None):
     """
     Yahoo Finance kullanarak belirtilen hisse sembolleri için geçmiş piyasa verilerini çeker.
     
     Parametreler:
     - tickers (list veya str): Hisse/Varlik sembolleri (Örn: 'AAPL' veya ['AAPL', 'MSFT']).
     - period (str): Verinin kapsayacaği zaman araliği (Örn: '1mo', '1y', '5y').
-    
-    Döndürür:
+    - start (str, opsiyonel): Belirli bir tarihten itibaren çekmek için (Örn: '2026-04-28'). 
+      Eğer start verilirse 'period' parametresi yok sayilir.
     - pandas.DataFrame: Geçmiş fiyat verilerini içeren DataFrame veya hata durumunda None.
     """
     try:
-        print(f"İnternetten veri çekiliyor... Semboller: {tickers} | Periyot: {period}")
-        
-        # yfinance kullanarak veriyi indir
-        data = yf.download(tickers, period=period)
+        # Eğer start tarihi verildiyse (Update modu) ona göre çek
+        if start:
+            print(f" İnternetten veri çekiliyor... Semboller: {tickers} | Başlangiç Tarihi: {start}")
+            data = yf.download(tickers, start=start)
+        # Eğer start yoksa eskisi gibi periyotla (Sıfırdan kurulum modu) çek
+        else:
+            print(f" İnternetten veri çekiliyor... Semboller: {tickers} | Periyot: {period}")
+            data = yf.download(tickers, period=period)
         
         # Çekilen verinin boş olup olmadığını kontrol et 
         if data.empty:
-            print("Uyari: İstenen periyot için veri bulunamadi veya hisse sembolü geçersiz...")
+            print(" Uyari: İstenen periyot/tarih için veri bulunamadi veya hisse sembolü geçersiz...")
             return None
             
-        print("Veri başariyla çekildi!..")
+        print(" Veri başariyla çekildi!..")
         return data
         
     except Exception as e:
-        print(f"Veri çekilirken sistemsel bir hata oluştu: {e}")
+        print(f" Veri çekilirken sistemsel bir hata oluştu: {e}")
         return None
 
 if __name__ == "__main__":
@@ -53,7 +57,6 @@ if __name__ == "__main__":
     
     # 10 yıllık geçmiş veriyi çek (Krizleri kapsayacak şekilde)
     portfolio_data = fetch_data(tickers=target_tickers, period="10y")
-
 
     
     if portfolio_data is not None:
