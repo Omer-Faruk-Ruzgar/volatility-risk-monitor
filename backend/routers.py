@@ -5,9 +5,9 @@
 # Bu dosya main.py'e import edilir ve /api prefix'i ile kaydedilir.
 # Yani burada yazdığın @router.get('/assets') aslında /api/assets olur.
 
-from fastapi import APIRouter
+from fastapi import APIRouter, HTTPException
 
-from backend.schemas import VaRResponse , VolatilityResponse  # schemas.py'da tanımladığımız modeller
+from backend.schemas import VaRResponse , VolatilityResponse, ReturnResponse  # schemas.py'da tanımladığımız modeller
 from backend import services
 
 # APIRouter örneği oluşturuyoruz.
@@ -27,6 +27,13 @@ def get_assets():
     return {'tickers': ['XOM', 'CVX', 'USO', 'BNO', 'XLE',
             'UNG', 'KSA', 'GLD', 'WEAT', 'TLT', 'SPY']}
 
+@router.get("/returns", response_model=ReturnsResponse)
+def returns_endpoint(ticker: str):
+    """Bir ticker'ın tüm log getiri serisini döndürür."""
+    try:
+        return services.get_returns(ticker)
+    except (FileNotFoundError, ValueError) as e:
+        raise HTTPException(status_code=404, detail=str(e))
 
 @router.get("/var", response_model=VaRResponse)
 def var_endpoint(
@@ -38,7 +45,10 @@ def var_endpoint(
     Verilen ticker için VaR döndürür.
     - method: 'parametric' (normal dağılım varsayımı) veya 'historical' (gerçek dönüş verisi)
     """
-    return services.get_var(ticker, method, confidence)
+    try:
+        return services.get_var(ticker, method, confidence)
+    except (FileNotFoundError, ValueError) as e:
+        raise HTTPException(status_code=404, detail=str(e))
 
 
 @router.get("/es", response_model=VaRResponse)
@@ -52,11 +62,15 @@ def es_endpoint(
     VaR ile aynı hesaplamadan geliyor; sadece 'es' alanına odaklanır.
     Şimdilik tam VaR response'u döndürüyoruz. Member 4 isterse sadece 'es' alanını kullanır.
     """
-    return services.get_var(ticker, method, confidence)
+    try:
+        return services.get_var(ticker, method, confidence)
+    except (FileNotFoundError, ValueError) as e:
+        raise HTTPException(status_code=404, detail=str(e))
 
 @router.get("/volatility", response_model=VolatilityResponse)
 def volatility_endpoint(ticker: str):
     return services.get_volatility(ticker)
+
 # --- ÖNBELLEK YÖNETİM ENDPOINT'LERİ (Issue #29) ---
 
 @router.get("/cache-status")
