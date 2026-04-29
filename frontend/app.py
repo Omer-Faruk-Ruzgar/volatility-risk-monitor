@@ -24,12 +24,23 @@ def fetch_assets():
     except Exception:
         return ["XOM", "CVX", "USO", "BNO", "XLE", "UNG", "KSA", "GLD", "WEAT", "TLT", "SPY"]
 
-# Sidebar — sadece sayfa navigasyonu
+# Sidebar: sadece sayfa navigasyonu
 st.sidebar.title("Volatility Risk Monitor")
 page = st.sidebar.radio(
     "Gezinti:",
     ["Ana Sayfa", "Returns", "Volatility", "Risk Metrics", "Backtest", "Portföy"]
 )
+
+# Ana Sayfa dışındaki sayfalar için ticker seçici
+if page != "Ana Sayfa" and page != "Portföy":
+    assets = fetch_assets()
+    selected_ticker = st.sidebar.selectbox(
+        "Ticker:",
+        assets,
+        index=0,
+        key="selected_ticker"
+    )
+    
 st.sidebar.divider()
 st.sidebar.caption("Backend: `uvicorn backend.main:app --reload`")
 st.sidebar.caption("Frontend: `streamlit run app.py`")
@@ -52,20 +63,9 @@ def ticker_tabs() -> str:
             yield assets[i], tab
             return  # ilk aktif sekmenin içeriği render edildiğinde dur
 
-
-def render_with_tabs(render_fn):
-    """
-    Ticker sekmelerini çizer; aktif sekmenin içinde render_fn(ticker) çağırır.
-    """
-    assets = fetch_assets()
-    # Önceki seçimi koru
-    if "selected_ticker" not in st.session_state:
-        st.session_state["selected_ticker"] = assets[0]
-
-    tabs = st.tabs(assets)
-    for i, tab in enumerate(tabs):
-        with tab:
-            render_fn(assets[i])
+def render_for_ticker(render_fn):
+    ticker = st.session_state.get("selected_ticker", fetch_assets()[0])
+    render_fn(ticker)
 
 
 # Ana Sayfa
@@ -137,7 +137,7 @@ elif page == "Returns":
         except Exception as e:
             st.error(f"Hata: {e}")
 
-    render_with_tabs(render_returns)
+    render_for_ticker(render_returns)
 
 
 # Volatility
@@ -177,7 +177,7 @@ elif page == "Volatility":
         except Exception as e:
             st.error(f"Hata: {e}")
 
-    render_with_tabs(render_volatility)
+    render_for_ticker(render_volatility)
 
 
 # Risk Metrics
@@ -219,7 +219,7 @@ elif page == "Risk Metrics":
         except Exception as e:
             st.error(f"Hata: {e}")
 
-    render_with_tabs(render_risk)
+    render_for_ticker(render_risk)
 
 
 # Backtest
@@ -283,7 +283,7 @@ elif page == "Backtest":
         except Exception as e:
             st.error(f"Hata: {e}")
 
-    render_with_tabs(render_backtest)
+    render_for_ticker(render_backtest)
 
 
 # Portföy
