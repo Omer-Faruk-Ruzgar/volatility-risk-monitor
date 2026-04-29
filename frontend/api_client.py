@@ -26,7 +26,7 @@ def get_returns(ticker, period="1Y") -> pd.DataFrame:
     dates = pd.date_range(end=datetime.now(), periods=100, freq="B")
     values = np.random.normal(0.001, 0.02, 100).cumsum() 
     
-    return pd.DataFrame({"date": dates, "value": values})
+    return pd.DataFrame({"date": dates, "log_return": values})
 
 # 3. get_volatility(ticker) - EWMA, GARCH, Forecast döner
 def get_volatility(ticker) -> pd.DataFrame:
@@ -43,7 +43,8 @@ def get_volatility(ticker) -> pd.DataFrame:
         "date": dates,
         "EWMA": np.abs(np.random.normal(0.02, 0.005, 100)),
         "GARCH": np.abs(np.random.normal(0.025, 0.005, 100)),
-        "Forecast": np.abs(np.random.normal(0.028, 0.005, 100))
+        "Forecast": np.abs(np.random.normal(0.028, 0.005, 100)),
+        "LSTM": np.random.uniform(0.1, 0.3, 100)
     })
 
 # 4. get_backtest(ticker, method) - Backtest istatistikleri döner
@@ -66,3 +67,21 @@ def get_backtest(ticker, method="Historical") -> pd.DataFrame:
         "var": var_line,
         "breach": breach
     })
+
+
+def get_portfolio_analysis(tickers, weights) -> dict:
+    """Seçilen varlıklar ve ağırlıklara göre portföy analizi döner."""
+    # TODO: Backend entegrasyonu
+    # response = requests.post(f"{BACKEND_URL}/portfolio", json={"tickers": tickers, "weights": weights})
+    
+    # Mock Data: Gerçekçi portföy sonuçları
+    return {
+        "VaR": -0.0245,
+        "ES": -0.0312,
+        "Diversification_Effect": 0.005,
+        "Correlation_Matrix": pd.DataFrame(
+            np.random.uniform(0.3, 0.8, (len(tickers), len(tickers))),
+            index=tickers,
+            columns=tickers
+        )
+    }
