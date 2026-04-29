@@ -7,7 +7,7 @@
 
 from fastapi import APIRouter, HTTPException
 
-from backend.schemas import VaRResponse , VolatilityResponse, ReturnResponse  # schemas.py'da tanımladığımız modeller
+from backend.schemas import VaRResponse , VolatilityResponse, ReturnsResponse  # schemas.py'da tanımladığımız modeller
 from backend import services
 
 # APIRouter örneği oluşturuyoruz.

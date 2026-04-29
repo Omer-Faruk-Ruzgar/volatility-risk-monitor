@@ -6,7 +6,7 @@
 # Şu an için sadece iskelet kodu içeriyor.
 # Üye 2'nin veri pipeline'ı hazır olduğunda burası genişletilecek.
 import time
-
+from pathlib import Path
  
 import pandas as pd
 from sqlalchemy import create_engine
