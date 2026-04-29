@@ -6,7 +6,9 @@
 # Yani burada yazdığın @router.get('/assets') aslında /api/assets olur.
 
 from fastapi import APIRouter
-from backend.schemas import VaRResponse  # schemas.py'da tanımladığımız model
+
+from backend.schemas import VaRResponse , VolatilityResponse  # schemas.py'da tanımladığımız modeller
+from backend import services
 
 # APIRouter örneği oluşturuyoruz.
 # Bu, endpoint'leri main.py'den ayrı bir dosyada tanımlamamızı sağlar.
@@ -51,3 +53,18 @@ def es_endpoint(
     Şimdilik tam VaR response'u döndürüyoruz. Member 4 isterse sadece 'es' alanını kullanır.
     """
     return services.get_var(ticker, method, confidence)
+
+@router.get("/volatility", response_model=VolatilityResponse)
+def volatility_endpoint(ticker: str):
+    return services.get_volatility(ticker)
+# --- ÖNBELLEK YÖNETİM ENDPOINT'LERİ (Issue #29) ---
+
+@router.get("/cache-status")
+def get_cache_status():
+    """Önbellekteki anahtarlari ve toplam öğe sayisini döndürür"""
+    return services.get_cache_status()
+
+@router.delete("/cache")
+def clear_cache():
+    """ önbelleği temizler"""
+    return services.clear_cache()
