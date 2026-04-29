@@ -66,6 +66,61 @@ def get_backtest(ticker, method="Historical") -> pd.DataFrame:
     merged["breach"] = merged["return"] < merged["var"]
     return merged
 
+# 4. get_risk_metrics(ticker, method) - VaR + ES zaman serileri döner
+def get_risk_metrics(ticker, method="parametric") -> pd.DataFrame:
+    """
+    Risk Metrics sayfası için VaR ve ES serilerini döndürür.
+    Kolonlar: date, parametric_var, historical_var, es, is_breach (bool)
+    """
+    data = _get("/api/var", params={"ticker": ticker, "method": method})
+    returns_data = _get("/api/returns", params={"ticker": ticker})
+
+    # VaR ve ES serileri
+    var_df = pd.DataFrame({
+        "date":           pd.to_datetime(data["dates"]),
+        "parametric_var": data["parametric_var"],
+        "historical_var": data["historical_var"],
+        "es":             data["es"],
+    })
+
+    # Gerçek getiriler
+    ret_df = pd.DataFrame(returns_data["data"])
+    ret_df["date"] = pd.to_datetime(ret_df["date"])
+    ret_df = ret_df.rename(columns={"value": "return"})
+
+    merged = pd.merge(ret_df, var_df, on="date")
+
+    # Seçilen yönteme göre ihlal işaretle
+    active_var = merged["parametric_var"] if method == "parametric" else merged["historical_var"]
+    merged["is_breach"] = merged["return"] < active_var
+
+    return merged, data.get("breaches", [])
+
+def get_breach_stats(df: pd.DataFrame) -> dict:
+    """get_backtest() veya get_risk_metrics() sonucundan istatistikler hesaplar."""
+    n = len(df)
+    breach_col = "is_breach" if "is_breach" in df.columns else "breach"
+    n_breaches = int(df[breach_col].sum())
+    breach_rate = n_breaches / n if n > 0 else 0.0
+    expected_rate = 0.05
+
+    diff = abs(breach_rate - expected_rate)
+    if diff < 0.015:
+        status = "Geçti"
+        status_color = "green"
+    else:
+        status = "Kaldı"
+        status_color = "red"
+
+    return {
+        "n_observations": n,
+        "breach_count":   n_breaches,
+        "breach_rate":    breach_rate,
+        "expected_rate":  expected_rate,
+        "status":         status,
+        "status_color":   status_color,
+    }
+
 
 def get_portfolio_analysis(tickers, weights) -> dict:
     """Seçilen varlıklar ve ağırlıklara göre portföy analizi döner."""
