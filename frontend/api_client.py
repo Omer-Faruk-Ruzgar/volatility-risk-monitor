@@ -1,6 +1,6 @@
+import request
 import pandas as pd
 import numpy as np
-from datetime import datetime
 
 BACKEND_URL = "http://localhost:8000"
 
