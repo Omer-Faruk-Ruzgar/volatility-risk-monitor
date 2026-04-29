@@ -1,10 +1,10 @@
+from __future__ import annotations
+
 """VaR modelleri için backtesting yardımcı fonksiyonları."""
 
 import numpy as np
 import pandas as pd
 from scipy import stats
-
-from __future__ import annotations
 
 
 TRADING_DAYS = 252
