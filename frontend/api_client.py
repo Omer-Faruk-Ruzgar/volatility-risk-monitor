@@ -5,7 +5,6 @@ import numpy as np
 BACKEND_URL = "http://localhost:8000"
 
 def _get(path: str, params: dict = None):
-    """Hata yönetimi ile GET isteği atar."""
     try:
         response = requests.get(f"{BACKEND_URL}{path}", params=params, timeout=30)
         response.raise_for_status()
@@ -16,7 +15,12 @@ def _get(path: str, params: dict = None):
             "`uvicorn backend.main:app --reload` komutunu çalıştırdığınızdan emin olun."
         )
     except requests.exceptions.HTTPError as e:
-        raise ValueError(f"Backend hatası: {e.response.json().get('detail', str(e))}")
+        # Backend JSON yerine HTML döndürebilir (500 hatalarında), güvenli parse et
+        try:
+            detail = e.response.json().get("detail", str(e))
+        except Exception:
+            detail = e.response.text[:300] if e.response.text else str(e)
+        raise ValueError(f"Backend hatası ({e.response.status_code}): {detail}")
 
 # 1. get_assets() - Ticker listesi döner
 def get_assets() -> list:
