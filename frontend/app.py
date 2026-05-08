@@ -8,7 +8,7 @@ from api_client import (
     get_risk_metrics, get_backtest, get_breach_stats,
     get_portfolio_analysis,
 )
-from components import line_chart, multi_line_chart, var_breach_chart, summary_table
+from components import line_chart, multi_line_chart, regime_chart, var_breach_chart, summary_table , regime_chart
 
 # Sayfa Ayarları
  
@@ -69,45 +69,57 @@ def render_for_ticker(render_fn):
 
 
 # Ana Sayfa
+
 if page == "Ana Sayfa":
+    # 1. Dashboard için gerekli fonksiyonu api_client'dan import etmeyi unutma (yukarıda yapmadıysan)
+    from api_client import get_all_summaries
+    from components import ticker_card
+
     st.markdown("""
         <style>
         .main-title { font-size: 42px; font-weight: bold; text-align: center; color: #1E3A5F; margin-bottom: 8px; }
         .sub-title  { font-size: 17px; text-align: center; color: #555; margin-bottom: 32px; }
-        .card {
-            background: #f1f3f5; padding: 20px; border-radius: 10px;
-            border-top: 4px solid #1E3A5F; color: #333; min-height: 130px;
-        }
-        .model-card {
-            background: #1E3A5F; padding: 12px; border-radius: 8px;
-            text-align: center; font-weight: bold; color: white;
-        }
         </style>
     """, unsafe_allow_html=True)
 
     st.markdown('<div class="main-title">Volatility Risk Monitor</div>', unsafe_allow_html=True)
-    st.markdown('<div class="sub-title">Finansal piyasalarda risk yönetimi ve oynaklık tahmini için uçtan uca izleme platformu.</div>', unsafe_allow_html=True)
+    st.markdown('<div class="sub-title">Finansal piyasaların anlık risk durumunu ve oynaklık metriklerini tek bakışta izleyin.</div>', unsafe_allow_html=True)
+    
     st.divider()
 
-    col1, col2, col3 = st.columns(3)
-    with col1:
-        st.markdown('<div class="card"><b> Risk Analizi</b><br><br>Rolling VaR ve Expected Shortfall hesaplamaları ile portföy riskini ölçün. Kupiec testi ile model doğruluğunu sınayın.</div>', unsafe_allow_html=True)
-    with col2:
-        st.markdown('<div class="card"><b> Volatilite Tahmini</b><br><br>EWMA, GARCH(1,1) ve XGBoost modelleriyle piyasa oynaklığını tahmin edin ve karşılaştırın.</div>', unsafe_allow_html=True)
-    with col3:
-        st.markdown('<div class="card"><b> Portföy Analizi</b><br><br>Birden fazla varlık seçin, ağırlık atayın ve portföy düzeyinde risk metriklerinizi görün.</div>', unsafe_allow_html=True)
+    # 2. Canlı Ticker Kartları Bölümü
+    st.subheader("Piyasa Risk Özeti")
+    
+    try:
+        # 11 ticker için veri çekme işlemi (Spinner ile kullanıcıya bilgi veriyoruz)
+        with st.spinner("Piyasa özetleri backend'den çekiliyor, lütfen bekleyin..."):
+            summaries = get_all_summaries()
+
+        if summaries:
+            # Kartları 4 sütun halinde diziyoruz
+            cols = st.columns(4)
+            for i, data in enumerate(summaries):
+                # Modülo operatörü ile kartları sütunlara dağıtıyoruz
+                with cols[i % 4]:
+                    ticker_card(
+                        ticker=data['ticker'],
+                        garch_vol=data['last_garch'],
+                        delta=data['delta'],
+                        status=data['status']
+                    )
+        else:
+            st.warning("Henüz görüntülenecek veri bulunamadı. Lütfen backend bağlantısını kontrol edin.")
+            
+    except Exception as e:
+        st.error(f"Dashboard yüklenirken bir hata oluştu: {e}")
 
     st.markdown("<br>", unsafe_allow_html=True)
-    st.subheader("Analitik Modeller")
-    m1, m2, m3 = st.columns(3)
-    m1.markdown('<div class="model-card">EWMA</div>', unsafe_allow_html=True)
-    m2.markdown('<div class="model-card">GARCH(1,1)</div>', unsafe_allow_html=True)
-    m3.markdown('<div class="model-card">XGBoost</div>', unsafe_allow_html=True)
-
-    st.markdown("<br>", unsafe_allow_html=True)
-    st.info("Sol menüden analiz türünü seçin → Ticker sekmesine tıklayın → Sonuçları inceleyin.")
+    
+    # 3. Bilgi Paneli (Statik Metinler Yerine Daha Şık Bir İpucu)
+    st.info(" **İpucu:** Yukarıdaki kartlar son GARCH volatilitesini gösterir. Detaylı analiz için sol menüden ilgili sekmeye geçiş yapabilirsiniz.")
+    
     st.divider()
-    st.caption("Bu platform sadece akademik amaçlıdır ve yatırım tavsiyesi içermez.")
+    st.caption("Bu platform sadece akademik amaçlıdır ve yatırım tavsiyesi içermez. Veriler 5 dakikada bir güncellenir.")
 
 
 # Returns
@@ -133,7 +145,7 @@ elif page == "Returns":
                        title=f"{ticker} — Kümülatif Log Getiri")
 
         except ConnectionError as e:
-            st.error(f"🔌 {e}")
+            st.error(f" {e}")
         except Exception as e:
             st.error(f"Hata: {e}")
 
@@ -162,6 +174,11 @@ elif page == "Volatility":
                 title=f"{ticker} — Volatilite Modelleri Karşılaştırması (Yıllıklandırılmış)",
             )
 
+            # multi_line_chart'tan sonra:
+            st.divider()
+            st.subheader(" Tarihsel Olaylar ve Volatilite Rejimleri")
+            regime_chart(df, ticker)
+
             st.subheader("Model Özet İstatistikleri")
             stats = pd.DataFrame({
                 "Model":    ["EWMA", "GARCH", "Forecast"],
@@ -173,7 +190,7 @@ elif page == "Volatility":
             st.dataframe(stats, use_container_width=True, hide_index=True)
 
         except ConnectionError as e:
-            st.error(f"🔌 {e}")
+            st.error(f"{e}")
         except Exception as e:
             st.error(f"Hata: {e}")
 
@@ -290,6 +307,7 @@ elif page == "Backtest":
 elif page == "Portföy":
     st.title("Portföy Risk Analizi")
 
+    # Varlık Seçimi
     assets = fetch_assets()
     default = ["SPY", "GLD"] if "SPY" in assets and "GLD" in assets else assets[:2]
     selected = st.multiselect("Portföye Varlık Ekleyin:", assets, default=default)
@@ -298,6 +316,7 @@ elif page == "Portföy":
         st.info("Analiz için en az bir varlık seçin.")
         st.stop()
 
+    # Ağırlık Belirleme
     st.subheader("Varlık Ağırlıkları")
     weights = []
     cols = st.columns(len(selected))
@@ -314,25 +333,55 @@ elif page == "Portföy":
 
     st.success(f"Toplam Ağırlık: %{total*100:.0f} ✓")
 
+    # Analiz Butonu ve Sonuçlar
     if st.button(" Portföyü Analiz Et", type="primary"):
         try:
-            with st.spinner("Portföy analizi hesaplanıyor..."):
+            with st.spinner("Gerçek piyasa verileri ve korelasyonlar hesaplanıyor..."):
+                # Backend'den risk metriklerini al
                 data = get_portfolio_analysis(selected, weights)
+                
+                # api_client'dan yeni fonksiyonu çağır (Hiyerarşik Matris)
+                from api_client import get_correlation_matrix
+                corr_matrix = get_correlation_matrix(selected)
 
             st.divider()
+            
+            # Risk Metrikleri Widgetları
             c1, c2, c3 = st.columns(3)
-            c1.metric("Portföy VaR (%95)",      f"{data['VaR']:.2%}")
+            c1.metric("Portföy VaR (%95)", f"{data['VaR']:.2%}")
             c2.metric("Expected Shortfall (ES)", f"{data['ES']:.2%}")
-            c3.metric("Çeşitlendirme Etkisi",   f"{data['Diversification_Effect']:.2%}")
+            c3.metric("Çeşitlendirme Etkisi", f"{data['Diversification_Effect']:.2%}")
 
-            st.subheader("Korelasyon Matrisi")
+            # --- Hiyerarşik Korelasyon Matrisi ---
+            st.subheader("Hiyerarşik Korelasyon Matrisi")
+            st.markdown("*Varlıklar Ward metoduna göre benzerliklerine göre sıralanmıştır.*")
             st.dataframe(
-                data["Correlation_Matrix"].style.background_gradient(cmap="RdYlGn_r", axis=None),
-                use_container_width=True,
+                corr_matrix.style.background_gradient(cmap="RdYlGn_r", axis=None).format("{:.2f}"),
+                use_container_width=True
             )
 
-        except ConnectionError as e:
-            st.error(f" {e}")
+            # --- Otomatik Analiz ve Yorumlar ---
+            st.subheader(" Akıllı Portföy Yorumları")
+            
+            # Matrisin üst üçgenini tara (çiftleri ayıklamak için)
+            upper_tri = corr_matrix.where(np.triu(np.ones(corr_matrix.shape), k=1).astype(bool))
+            pairs = upper_tri.unstack().dropna()
+            
+            insights_count = 0
+            for (var1, var2), corr in pairs.items():
+                if corr >= 0.70:
+                    st.info(f" **{var1}** ve **{var2}** arasında çok güçlü pozitif korelasyon var ({corr:.2f}). Bu iki varlığın aynı anda düşme riski yüksektir.")
+                    insights_count += 1
+                elif corr <= -0.40:
+                    st.success(f" **{var1}** ve **{var2}** negatif korelasyon gösteriyor ({corr:.2f}). Portföy için harika bir çeşitlendirme kaynağı.")
+                    insights_count += 1
+            
+            if insights_count == 0:
+                st.write("Portföydeki varlıklar arasında ekstrem bir bağımlılık tespit edilmedi. Dengeli bir dağılım görünüyor.")
+
+            st.divider()
+            st.caption(" **Kritik Not:** Bu matris tarihsel getiri serilerinden hesaplanmıştır. Korelasyon zamanla değişebilir (Correlation Breakdown).")
+
         except Exception as e:
-            st.error(f"Hata: {e}")
+            st.error(f"Portföy analizi sırasında bir hata oluştu: {e}")
 
