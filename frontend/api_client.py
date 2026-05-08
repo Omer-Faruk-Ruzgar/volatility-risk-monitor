@@ -1,6 +1,8 @@
 import requests
 import pandas as pd
 import numpy as np
+import streamlit as st
+
 
 BACKEND_URL = "http://localhost:8000"
 
@@ -154,3 +156,80 @@ def get_portfolio_analysis(tickers, weights) -> dict:
         "Diversification_Effect": 0.0,
         "Correlation_Matrix": corr_matrix,
     }
+
+#  ANA SAYFA DASHBOARD VERİSİ
+
+@st.cache_data(ttl=300)  # Veriyi 300 saniye boyunca önbelleğe al
+def get_all_summaries():
+    """
+    11 ticker için volatilite özetlerini çeker.
+    Dashboard kartları için GARCH değerlerini ve değişimleri hesaplar.
+    """
+    tickers = get_assets()  # Backend'den tüm ticker listesini alma
+    summaries = []
+    
+    # Kullanıcıya yüklenme bilgisini bir spinner ile gösterme
+    for ticker in tickers:
+        try:
+            # Her ticker için volatilite verisini çek
+            data = _get("/api/volatility", params={"ticker": ticker})
+            garch_series = data.get("garch", [])
+            
+            if len(garch_series) >= 2:
+                current_garch = garch_series[-1]
+                previous_garch = garch_series[-2]
+                avg_garch = sum(garch_series) / len(garch_series)
+                
+                # Değişim (Delta) hesapla
+                delta = current_garch - previous_garch
+                
+                # Durum (Status) Belirle
+                if current_garch > avg_garch * 1.5:
+                    status = "Ekstrem"
+                elif current_garch > avg_garch * 1.1:
+                    status = "Yüksek"
+                else:
+                    status = "Normal"
+                
+                summaries.append({
+                    "ticker": ticker,
+                    "last_garch": current_garch,
+                    "delta": delta,
+                    "status": status
+                })
+        except Exception as e:
+            # Bir ticker'da hata olursa tüm dashboard çökmesin, o kartı atla
+            print(f"Hata: {ticker} verisi alınamadı. {e}")
+            
+    return summaries
+
+from scipy.cluster.hierarchy import linkage, leaves_list, optimal_leaf_ordering
+
+def get_correlation_matrix(tickers):
+    """
+    Varlıklar arasındaki gerçek korelasyonu hesaplar ve 
+    hiyerarşik kümeleme (Ward metodu) ile sıralar.
+    """
+    all_returns = {}
+    
+    # 1. Her ticker için verileri çek ve birleştir
+    for ticker in tickers:
+        try:
+            df_ret = get_returns(ticker)
+            all_returns[ticker] = df_ret.set_index("date")["log_return"]
+        except:
+            continue
+            
+    df_all = pd.DataFrame(all_returns).dropna()
+    corr_matrix = df_all.corr()
+
+    # 2. Hiyerarşik Kümeleme (Hudson & Thames - Ward Metodu)
+    if len(tickers) > 1:
+        # Uzaklık matrisi (1 - corr)
+        dists = 1 - corr_matrix
+        linkage_matrix = linkage(dists, method='ward', optimal_ordering=True)
+        # Yeni sıralamayı al
+        new_order = [corr_matrix.columns[i] for i in leaves_list(linkage_matrix)]
+        corr_matrix = corr_matrix.reindex(index=new_order, columns=new_order)
+        
+    return corr_matrix
