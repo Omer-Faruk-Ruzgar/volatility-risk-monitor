@@ -55,3 +55,14 @@ class BacktestResponse(BaseModel):
     kupiec_statistic: float  # Kupiec testinin istatistik değeri
     kupiec_p_value: float    # p-değeri > 0.05 ise model kabul edilebilir demektir
     result: str              # test sonucu: 'pass' (geçti) veya 'fail' (kaldı)
+
+
+class NewsItem(BaseModel):
+    headline: str    # Haberin başlığı
+    source: str      # Haberin kaynağı 
+    datetime: int    # Zaman 
+    url: str         # Habere giden link
+
+class NewsResponse(BaseModel):
+    ticker: str              # Hangi hisseye ait olduğu
+    news: List[NewsItem]     # Haberlerin listesi
