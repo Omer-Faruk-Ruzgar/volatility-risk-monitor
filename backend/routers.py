@@ -7,7 +7,9 @@
 
 from fastapi import APIRouter, HTTPException
 
-from backend.schemas import VaRResponse , VolatilityResponse, ReturnsResponse  # schemas.py'da tanımladığımız modeller
+from backend.schemas import VaRResponse , VolatilityResponse, ReturnsResponse , NewsResponse 
+ # schemas.py'da tanımladığımız modeller
+
 from backend import services
 
 # APIRouter örneği oluşturuyoruz.
@@ -34,7 +36,7 @@ def returns_endpoint(ticker: str):
     except (FileNotFoundError, ValueError) as e:
         raise HTTPException(status_code=404, detail=str(e))
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))  # bu satırı ekle
+        raise HTTPException(status_code=500, detail=str(e))  
 
 
 @router.get("/var", response_model=VaRResponse)
@@ -78,7 +80,7 @@ def volatility_endpoint(ticker: str):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))  # bu satırı ekle
 
-# --- ÖNBELLEK YÖNETİM ENDPOINT'LERİ (Issue #29) ---
+#  ÖNBELLEK  ENDPOINTLERİ 
 
 @router.get("/cache-status")
 def get_cache_status():
@@ -89,3 +91,9 @@ def get_cache_status():
 def clear_cache():
     """ önbelleği temizler"""
     return services.clear_cache()
+
+
+# Finnhub üzerinden hisse senedine ait güncel haberleri getirir
+@router.get("/news/{ticker}", response_model=NewsResponse)
+def get_company_news(ticker: str, limit: int = 10):
+    return services.get_news(ticker, limit)     

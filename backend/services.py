@@ -6,8 +6,11 @@
 # Şu an için sadece iskelet kodu içeriyor.
 # Üye 2'nin veri pipeline'ı hazır olduğunda burası genişletilecek.
 import time
+import os 
+import requests
 from pathlib import Path
- 
+from datetime  import datetime , timedelta 
+
 import pandas as pd
 from sqlalchemy import create_engine
  
@@ -166,3 +169,38 @@ def clear_cache() -> dict: #onbellegi  temizler
     
     _cache.clear()
     return {"message": "Onbellek basariyla temizlendi"}
+
+
+# FINNHUB HABER FONKSİYONU
+FINNHUB_API_KEY = os.getenv("FINNHUB_API_KEY")
+
+def get_news(ticker: str, limit: int = 10) -> dict:
+    #Finnhub API'den son 7 günlük hisse haberlerini çeker
+    # Tarihleri hesapla
+    to_date = datetime.now().strftime('%Y-%m-%d')
+    from_date = (datetime.now() - timedelta(days=7)).strftime('%Y-%m-%d')
+    
+    # İsteği hazırla
+    url = f"https://finnhub.io/api/v1/company-news?symbol={ticker}&from={from_date}&to={to_date}&token={FINNHUB_API_KEY}"
+    
+    try:
+        response = requests.get(url)
+        if response.status_code == 200:
+            all_news = response.json()
+            news_list = all_news[:limit] # İstenen sayı kadar haber al
+            
+            # Sadece gerekli alanları ayır
+            formatted_news = []
+            for item in news_list:
+                formatted_news.append({
+                    "headline": item.get("headline"),
+                    "source": item.get("source"),
+                    "datetime": item.get("datetime"),
+                    "url": item.get("url")
+                })
+            return {"ticker": ticker, "news": formatted_news}
+            
+    except Exception as e:
+        print(f"Haber çekme hatası: {e}")
+
+    return {"ticker": ticker, "news": []}
