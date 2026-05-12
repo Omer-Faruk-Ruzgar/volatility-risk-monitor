@@ -7,8 +7,10 @@
 
 from fastapi import APIRouter, HTTPException
 
-from backend.schemas import VaRResponse , VolatilityResponse, ReturnsResponse , NewsResponse , PortfolioSummaryResponse
+
  # schemas.py'da tanımladığımız modeller
+from backend.schemas import VaRResponse , VolatilityResponse, ReturnsResponse , NewsResponse , PortfolioSummaryResponse , SentimentAlertResponse
+
 
 from backend import services
 
@@ -107,3 +109,8 @@ def get_company_news(ticker: str, limit: int = 10):
 @router.post("/portfolio", response_model=PortfolioSummaryResponse)
 def portfolio_endpoint(tickers: List[str] = Body(...), weights: List[float] = Body(...)):
     return services.get_portfolio_summary(tickers, weights)
+
+
+@router.get("/news/sentiment-alert/{ticker}", response_model=SentimentAlertResponse)
+def sentiment_alert(ticker: str):
+    return services.get_sentiment_alert(ticker)
