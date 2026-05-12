@@ -55,3 +55,27 @@ class BacktestResponse(BaseModel):
     kupiec_statistic: float  # Kupiec testinin istatistik değeri
     kupiec_p_value: float    # p-değeri > 0.05 ise model kabul edilebilir demektir
     result: str              # test sonucu: 'pass' (geçti) veya 'fail' (kaldı)
+
+
+class NewsItem(BaseModel):
+    headline: str    # Haberin başlığı
+    source: str      # Haberin kaynağı 
+    datetime: int    # Zaman 
+    url: str         # Habere giden link
+
+class NewsResponse(BaseModel):
+    ticker: str              # Hangi hisseye ait olduğu
+    news: List[NewsItem]     # Haberlerin listesi
+
+
+class PortfolioSummaryResponse(BaseModel):
+    tickers: List[str]
+    weights: List[float]
+    portfolio_var: float
+    portfolio_es: float
+    portfolio_vol: float
+    diversification_effect: float        # Weighted avg VaR - Portfolio VaR
+    correlation_matrix: dict             # {ticker: {ticker: float}}
+    ticker_vars: dict                    # {ticker: float}
+    ticker_vols: dict                    # {ticker: float}  (son GARCH değeri)
+    high_corr_pairs: List[dict]          # [{"a": "XOM", "b": "CVX", "corr": 0.91}]

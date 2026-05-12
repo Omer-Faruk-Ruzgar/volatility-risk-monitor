@@ -5,8 +5,16 @@
 # Bu dosya main.py'e import edilir ve /api prefix'i ile kaydedilir.
 # Yani burada yazdığın @router.get('/assets') aslında /api/assets olur.
 
-from fastapi import APIRouter
-from backend.schemas import VaRResponse  # schemas.py'da tanımladığımız model
+from fastapi import APIRouter, HTTPException
+
+from backend.schemas import VaRResponse , VolatilityResponse, ReturnsResponse , NewsResponse , PortfolioSummaryResponse
+ # schemas.py'da tanımladığımız modeller
+
+from backend import services
+
+from typing import List
+from fastapi import Body
+
 
 # APIRouter örneği oluşturuyoruz.
 # Bu, endpoint'leri main.py'den ayrı bir dosyada tanımlamamızı sağlar.
@@ -25,6 +33,15 @@ def get_assets():
     return {'tickers': ['XOM', 'CVX', 'USO', 'BNO', 'XLE',
             'UNG', 'KSA', 'GLD', 'WEAT', 'TLT', 'SPY']}
 
+@router.get("/returns", response_model=ReturnsResponse)
+def returns_endpoint(ticker: str):
+    try:
+        return services.get_returns(ticker)
+    except (FileNotFoundError, ValueError) as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))  
+
 
 @router.get("/var", response_model=VaRResponse)
 def var_endpoint(
@@ -36,7 +53,10 @@ def var_endpoint(
     Verilen ticker için VaR döndürür.
     - method: 'parametric' (normal dağılım varsayımı) veya 'historical' (gerçek dönüş verisi)
     """
-    return services.get_var(ticker, method, confidence)
+    try:
+        return services.get_var(ticker, method, confidence)
+    except (FileNotFoundError, ValueError) as e:
+        raise HTTPException(status_code=404, detail=str(e))
 
 
 @router.get("/es", response_model=VaRResponse)
@@ -50,4 +70,40 @@ def es_endpoint(
     VaR ile aynı hesaplamadan geliyor; sadece 'es' alanına odaklanır.
     Şimdilik tam VaR response'u döndürüyoruz. Member 4 isterse sadece 'es' alanını kullanır.
     """
-    return services.get_var(ticker, method, confidence)
+    try:
+        return services.get_var(ticker, method, confidence)
+    except (FileNotFoundError, ValueError) as e:
+        raise HTTPException(status_code=404, detail=str(e))
+
+@router.get("/volatility", response_model=VolatilityResponse)
+def volatility_endpoint(ticker: str):
+    try:
+        return services.get_volatility(ticker)
+    except (FileNotFoundError, ValueError) as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))  # bu satırı ekle
+
+#  ÖNBELLEK  ENDPOINTLERİ 
+
+@router.get("/cache-status")
+def get_cache_status():
+    """Önbellekteki anahtarlari ve toplam öğe sayisini döndürür"""
+    return services.get_cache_status()
+
+@router.delete("/cache")
+def clear_cache():
+    """ önbelleği temizler"""
+    return services.clear_cache()
+
+
+# Finnhub üzerinden hisse senedine ait güncel haberleri getirir
+@router.get("/news/{ticker}", response_model=NewsResponse)
+def get_company_news(ticker: str, limit: int = 10):
+    return services.get_news(ticker, limit)     
+
+
+
+@router.post("/portfolio", response_model=PortfolioSummaryResponse)
+def portfolio_endpoint(tickers: List[str] = Body(...), weights: List[float] = Body(...)):
+    return services.get_portfolio_summary(tickers, weights)

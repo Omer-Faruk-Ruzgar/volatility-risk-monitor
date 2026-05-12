@@ -5,6 +5,89 @@
 #
 # Şu an için sadece iskelet kodu içeriyor.
 # Üye 2'nin veri pipeline'ı hazır olduğunda burası genişletilecek.
+import time
+import os 
+import requests
+from pathlib import Path
+from datetime  import datetime , timedelta 
+
+import pandas as pd
+from sqlalchemy import create_engine
+ 
+from models.ewma import compute_ewma
+from models.garch import garch_volatility
+from models.forecaster import train_forecaster, predict_vol
+from models.var import compute_var as _compute_var
+from models.var import compute_correlation, compute_portfolio_volatility
+
+#  ÖNBELLEK SİSTEMİ 
+_cache = {}        # Verileri saklayacağımız  sözlük
+CACHE_TTL = 3600   # Veri ömrü  1 saat (saniye)
+
+# Veritabanindan getiri verisi yükleme
+def _load_returns(ticker: str) -> pd.Series:
+    """
+    market.db'den tek bir ticker'ın log getiri serisini yükler.
+ 
+    Raises:
+        FileNotFoundError - market.db henüz oluşturulmamışsa
+        ValueError        - ticker veritabanında yoksa
+    """
+    db_path = Path(__file__).resolve().parent.parent / "data" / "market.db"
+ 
+    if not db_path.exists() or db_path.stat().st_size == 0:
+        raise FileNotFoundError(
+            "market.db bulunamadı. Önce `python -m data.pipeline` komutunu çalıştırın."
+        )
+ 
+    engine = create_engine(f"sqlite:///{db_path.as_posix()}")
+    
+    try:
+        df = pd.read_sql(
+            "SELECT * FROM log_returns",
+            engine,
+            index_col="Date",
+            parse_dates=["Date"],
+        )
+    except Exception:
+        raise FileNotFoundError(
+            "market.db içinde 'log_returns' tablosu bulunamadı. "
+            "Önce python -m data.pipeline komutunu çalıştırın."
+        )
+
+    if ticker not in df.columns:
+        raise ValueError(
+            f"'{ticker}' veritabanında bulunamadı. "
+            f"Mevcut ticker'lar: {list(df.columns)}"
+        )
+
+    return df[ticker].dropna()
+ 
+
+def get_returns(ticker: str) -> dict:
+    """
+    Bir ticker'ın tüm log getiri serisini döndürür. ReturnsResponse (routers.py içinde)
+      şemasına uygun formattadır.
+    """
+    cache_key = f"{ticker}_returns"
+    if cache_key in _cache:
+        ts, data = _cache[cache_key]
+        if time.time() - ts < CACHE_TTL:
+            return data
+ 
+    returns = _load_returns(ticker)
+ 
+    output = {
+        "ticker": ticker,
+        "data": [
+            {"date": d.strftime("%Y-%m-%d"), "value": float(v)}
+            for d, v in returns.items()
+        ],
+    }
+ 
+    _cache[cache_key] = (time.time(), output)
+    return output
+ 
 
 def list_tickers() -> list:
     # Sistemdeki mevcut hisse senedi listesini döndürür.
@@ -15,19 +98,166 @@ def list_tickers() -> list:
 def get_var(ticker: str, method: str, confidence: float = 0.95) -> dict:
     """
     VaR (Value at Risk) ve Expected Shortfall hesaplar.
-
-    ŞUANLIK MOCK: var.py hazır olmadığı için sabit değer döndürüyor.
-    var.py hazır olunca Member 1 haber edecek. O zaman:
-      1. Dosyanın başına şunu eklemek gerekiyor:  from models.var import compute_var
-      2. Mock bloğu silip, yerine şunu yaz:  return compute_var(ticker, method, confidence)
+    models/var.py'deki compute_var fonksiyonunu kullanır.
     """
+    cache_key = f"{ticker}_var_{method}_{confidence}"
+    if cache_key in _cache:
+        ts, data = _cache[cache_key]
+        if time.time() - ts < CACHE_TTL:
+            return data
+ 
+    returns = _load_returns(ticker)
+    result  = _compute_var(returns, confidence=confidence, method=method)
+ 
+    output = {
+        "ticker":ticker,
+        "dates":result["dates"],
+        "parametric_var": result["parametric_var"],
+        "historical_var": result["historical_var"],
+        "es":result["es_series"],
+        "breaches": result["breaches"],
+    }
+ 
+    _cache[cache_key] = (time.time(), output)
+    return output
+    
+def get_volatility(ticker: str ) -> dict: #Mock data 
+    cache_key = f"{ticker}_volatility"
 
-    # Mock data - yapı doğru, değerler geçici
-    return {
+    #  Önbellek kontrolu
+    if cache_key in _cache:
+        ts, data = _cache[cache_key]
+        if time.time() - ts < CACHE_TTL:
+            return data
+    returns = _load_returns(ticker)
+ 
+    ewma_vol  = compute_ewma(returns, span=30)
+    garch_vol = garch_volatility(returns)
+ 
+    model, _, _ = train_forecaster(returns)
+    xgb_vol = predict_vol(model, returns, annualise=True)
+ 
+    # Tüm serileri ortak tarihlerde hizala
+    import pandas as pd
+    combined = pd.DataFrame({
+        "ewma":ewma_vol,
+        "garch": garch_vol,
+        "forecast": xgb_vol,
+    }).dropna()
+ 
+    output = {
         "ticker": ticker,
-        "method": method,
-        "confidence": confidence,
-        "var": -0.032,
-        "es": -0.048,
-        "breaches": ["2024-01-03"], 
+        "dates":[d.strftime("%Y-%m-%d") for d in combined.index],
+        "ewma": combined["ewma"].tolist(),
+        "garch": combined["garch"].tolist(),
+        "forecast": combined["forecast"].tolist(),
+    }
+
+    #  Önbelleğe kaydet
+    _cache[cache_key] = (time.time(), output)
+    return output
+    
+  
+def get_cache_status() -> dict:
+    # Önbellekte hangi hisseler var ve kaç tane
+
+    return {
+        "cached_keys": list(_cache.keys()),
+        "total_items": len(_cache)
+    }
+
+def clear_cache() -> dict: #onbellegi  temizler
+    
+    _cache.clear()
+    return {"message": "Onbellek basariyla temizlendi"}
+
+
+# FINNHUB HABER FONKSİYONU
+FINNHUB_API_KEY = os.getenv("FINNHUB_API_KEY")
+
+def get_news(ticker: str, limit: int = 10) -> dict:
+    #Finnhub API'den son 7 günlük hisse haberlerini çeker
+    # Tarihleri hesapla
+    to_date = datetime.now().strftime('%Y-%m-%d')
+    from_date = (datetime.now() - timedelta(days=7)).strftime('%Y-%m-%d')
+    
+    
+    url = f"https://finnhub.io/api/v1/company-news?symbol={ticker}&from={from_date}&to={to_date}&token={FINNHUB_API_KEY}"
+    
+    try:
+        response = requests.get(url)
+        if response.status_code == 200:
+            all_news = response.json()
+            news_list = all_news[:limit] 
+            
+            formatted_news = []
+            for item in news_list:
+                formatted_news.append({
+                    "headline": item.get("headline"),
+                    "source": item.get("source"),
+                    "datetime": item.get("datetime"),
+                    "url": item.get("url")
+                })
+            return {"ticker": ticker, "news": formatted_news}
+            
+    except Exception as e:
+        print(f"Haber çekme hatası: {e}")
+
+    return {"ticker": ticker, "news": []}
+
+
+def get_portfolio_summary(tickers: list, weights: list) -> dict:
+    from models.var import compute_correlation, compute_portfolio_volatility
+
+    ticker_vars = {}
+    ticker_vols = {}
+    ticker_es   = {}
+
+    for ticker in tickers:
+        var_data = get_var(ticker, method="parametric")
+        vol_data = get_volatility(ticker)
+        ticker_vars[ticker] = var_data["parametric_var"][-1]
+        ticker_es[ticker]   = var_data["es"][-1]
+        ticker_vols[ticker] = vol_data["garch"][-1]
+
+    # DataFrame oluştur — korelasyon ve portföy vol için gerekli
+    returns_dict = {ticker: _load_returns(ticker) for ticker in tickers}
+    returns_df   = pd.DataFrame(returns_dict).dropna()
+
+    corr_matrix = compute_correlation(returns_df)
+    port_vol    = compute_portfolio_volatility(returns_df, weights)
+
+    # Ağırlıklı portföy VaR ve ES
+    w             = np.array(weights)
+    portfolio_var = float(w @ np.array([ticker_vars[t] for t in tickers]))
+    portfolio_es  = float(w @ np.array([ticker_es[t]   for t in tickers]))
+
+    # Çeşitlendirme etkisi
+    weighted_avg_vol      = float(w @ np.array([ticker_vols[t] for t in tickers]))
+    diversification_effect = weighted_avg_vol - port_vol
+
+    # Yüksek korelasyonlu çiftler
+    high_corr_pairs = []
+    cols = corr_matrix.columns.tolist()
+    for i in range(len(cols)):
+        for j in range(i + 1, len(cols)):
+            corr_val = corr_matrix.iloc[i, j]
+            if abs(corr_val) >= 0.70:
+                high_corr_pairs.append({
+                    "a": cols[i],
+                    "b": cols[j],
+                    "corr": round(float(corr_val), 3)
+                })
+
+    return {
+        "tickers":                tickers,
+        "weights":                weights,
+        "portfolio_var":          portfolio_var,
+        "portfolio_es":           portfolio_es,
+        "portfolio_vol":          port_vol,
+        "diversification_effect": diversification_effect,
+        "ticker_vars":            ticker_vars,
+        "ticker_vols":            ticker_vols,
+        "correlation_matrix":     corr_matrix.round(3).to_dict(),
+        "high_corr_pairs":        high_corr_pairs,
     }
