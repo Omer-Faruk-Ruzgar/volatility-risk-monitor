@@ -3,11 +3,14 @@ import pandas as pd
 import numpy as np
 import plotly.graph_objects as go
 from chatbot import render_portfolio_chat
+from dotenv import load_dotenv
+load_dotenv()
+from chatbot import generate_portfolio_summary
 
 from api_client import (
     get_assets, get_returns, get_volatility,
     get_risk_metrics, get_backtest, get_breach_stats,
-    get_portfolio_analysis,
+    get_portfolio_summary,
 )
 from components import line_chart, multi_line_chart, regime_chart, var_breach_chart, summary_table , regime_chart
 
@@ -350,20 +353,35 @@ elif page == "Portföy":
     if st.button(" Portföyü Analiz Et", type="primary"):
         try:
             with st.spinner("Gerçek piyasa verileri ve korelasyonlar hesaplanıyor..."):
-                # Backend'den risk metriklerini al
-                data = get_portfolio_analysis(selected, weights)
+                # Backend'den risk metriklerini al (Fonksiyon ismi düzeltildi)
+                from api_client import get_portfolio_summary, get_correlation_matrix
+                data = get_portfolio_summary(selected, weights)
                 
-                # api_client'dan yeni fonksiyonu çağır (Hiyerarşik Matris)
-                from api_client import get_correlation_matrix
                 corr_matrix = get_correlation_matrix(selected)
-
+    
             st.divider()
+            
+            # --- YENİ EKLENEN AI ÖZET KARTI BAŞLANGICI ---
+            from chatbot import generate_portfolio_summary
+            with st.spinner("🤖 AI özeti hazırlanıyor..."):
+                ai_summary = generate_portfolio_summary(data)
+                if ai_summary:
+                    st.subheader("🤖 AI Portföy Özeti")
+                    st.info(ai_summary)
+                    st.divider()
+            # --- YENİ EKLENEN AI ÖZET KARTI BİTİŞİ ---
             
             # Risk Metrikleri Widgetları
             c1, c2, c3 = st.columns(3)
-            c1.metric("Portföy VaR (%95)", f"{data['VaR']:.2%}")
-            c2.metric("Expected Shortfall (ES)", f"{data['ES']:.2%}")
-            c3.metric("Çeşitlendirme Etkisi", f"{data['Diversification_Effect']:.2%}")
+            
+            # Backend'in gönderebileceği farklı isimlendirmeleri (küçük/büyük harf) yakalıyoruz
+            port_var = data.get('VaR', data.get('portfolio_var', data.get('var_95', 0)))
+            port_es = data.get('ES', data.get('expected_shortfall', data.get('es', 0)))
+            div_eff = data.get('Diversification_Effect', data.get('diversification_effect', 0))
+            
+            c1.metric("Portföy VaR (%95)", f"{port_var:.2%}")
+            c2.metric("Expected Shortfall (ES)", f"{port_es:.2%}")
+            c3.metric("Çeşitlendirme Etkisi", f"{div_eff:.2%}")
 
             # --- Hiyerarşik Korelasyon Matrisi ---
             st.subheader("Hiyerarşik Korelasyon Matrisi")

@@ -248,7 +248,7 @@ def compute_correlation(returns_df: pd.DataFrame) -> pd.DataFrame:
     return cleaned.corr(method = "pearson")
 
 def compute_portfolio_volatility(
-        retunrs_df: pd.DataFrame,
+        returns_df: pd.DataFrame,  # <--- HATA BURADAYDI, DÜZELTİLDİ
         weights: list,
         annualise: bool = True,
 ) -> float:
@@ -259,7 +259,7 @@ def compute_portfolio_volatility(
         raise ValueError(f"Ağırlıklar toplamı 1.0 olmalı, şu an: {w.sum(): .4f}")
     
     if len(w) != len(returns_df.columns):
-        raise ValueError("Ağırlık sayısı tikcer sayısıyla eşleşmiyor.")
+        raise ValueError("Ağırlık sayısı ticker sayısıyla eşleşmiyor.") # 'tikcer' kelimesi düzeltildi
     
     cleaned = returns_df.dropna()
 
@@ -276,4 +276,3 @@ def compute_portfolio_volatility(
         portfolio_vol = portfolio_vol * np.sqrt(TRADING_DAYS)
 
     return float(portfolio_vol)
-

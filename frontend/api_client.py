@@ -128,60 +128,31 @@ def get_breach_stats(df: pd.DataFrame) -> dict:
     }
 
 
-# ==========================================
-# İKİNCİ İSSUE İÇİN GÜNCELLENEN FONKSİYON
-# ==========================================
-def get_portfolio_analysis(tickers: list, weights: list) -> dict:
+def get_portfolio_summary(tickers: list, weights: list) -> dict:
     """
-    Seçilen hisseleri ve portföy ağırlıklarını backend'e POST isteği ile gönderir.
-    Backend hazır değilse veya bağlantı koparsa Mock (Sahte) veri döndürür.
+    Seçilen hisseleri ve ağırlıkları backend'e gönderir.
+    Test (mock) veriler kaldırılmıştır, sadece API'den gelen gerçek verileri kullanır.
     """
     url = f"{BACKEND_URL}/api/portfolio"
     
-    # Backend'in beklediği Body (JSON) paketi
     payload = {
         "tickers": tickers,
         "weights": weights
     }
     
     try:
-        # POST isteği atıyoruz, cevap vermesi için en fazla 5 saniye bekliyoruz
-        response = requests.post(url, json=payload, timeout=5)
+        # Gerçek piyasa hesaplamaları biraz daha uzun sürebileceği için timeout'u 15 saniyeye çıkardık
+        response = requests.post(url, json=payload, timeout=15)
         response.raise_for_status() 
         
+        # Sadece backend'den gelen gerçek JSON verisini döndür
         return response.json()
         
     except requests.exceptions.RequestException as e:
-        # Backend bağlantısı başarısız olursa sistemin çökmemesi için Fallback (Yedek) mekanizması
-        try:
-            st.toast(f"Backend portföy analizi için henüz hazır değil. Mock veri kullanılıyor.", icon="⚠️")
-        except:
-            pass # Eğer terminalde vs test ediliyorsa streamlit çökmesin diye pass geçiyoruz
-            
-        # app.py'nin beklediği formatta sahte veri hazırlıyoruz
-        mock_allocations = {ticker: float(weight * 100) for ticker, weight in zip(tickers, weights)}
-        
-        # Sahte korelasyon matrisi
-        corr_matrix = pd.DataFrame(
-            np.eye(len(tickers)),
-            index=tickers,
-            columns=tickers,
-        )
-        
-        return {
-            "allocation": mock_allocations,
-            "var_95": -2.8,
-            "volatility": 16.4,
-            "diversification_effect": 0.9,
-            "high_corr_pairs": "Yok",
-            "VaR": -2.8,
-            "ES": -3.5,
-            "Diversification_Effect": 0.9,
-            "Correlation_Matrix": corr_matrix,
-        }
-# ==========================================
-
-
+        # Backend hazır değilse veya çökerse artık test verisi uydurmak yerine sistemi uyar!
+        raise ValueError(f"Backend'den gerçek portföy verileri alınamadı: {e}")
+    
+    
 #  ANA SAYFA DASHBOARD VERİSİ
 
 @st.cache_data(ttl=300)  # Veriyi 300 saniye boyunca önbelleğe al
