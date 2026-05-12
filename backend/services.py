@@ -18,6 +18,7 @@ from models.ewma import compute_ewma
 from models.garch import garch_volatility
 from models.forecaster import train_forecaster, predict_vol
 from models.var import compute_var as _compute_var
+from models.var import compute_correlation, compute_portfolio_volatility
 
 #  ÖNBELLEK SİSTEMİ 
 _cache = {}        # Verileri saklayacağımız  sözlük
@@ -180,16 +181,15 @@ def get_news(ticker: str, limit: int = 10) -> dict:
     to_date = datetime.now().strftime('%Y-%m-%d')
     from_date = (datetime.now() - timedelta(days=7)).strftime('%Y-%m-%d')
     
-    # İsteği hazırla
+    
     url = f"https://finnhub.io/api/v1/company-news?symbol={ticker}&from={from_date}&to={to_date}&token={FINNHUB_API_KEY}"
     
     try:
         response = requests.get(url)
         if response.status_code == 200:
             all_news = response.json()
-            news_list = all_news[:limit] # İstenen sayı kadar haber al
+            news_list = all_news[:limit] 
             
-            # Sadece gerekli alanları ayır
             formatted_news = []
             for item in news_list:
                 formatted_news.append({
@@ -204,3 +204,51 @@ def get_news(ticker: str, limit: int = 10) -> dict:
         print(f"Haber çekme hatası: {e}")
 
     return {"ticker": ticker, "news": []}
+
+
+def get_portfolio_summary(tickers: list[str], weights: list[float]) -> dict:
+    ticker_vars = {}
+    ticker_vols = {}
+
+    # VaR ve Volatilite verileri çekme
+    for ticker in tickers:
+        var_data = get_var(ticker, method="parametric")
+        vol_data = get_volatility(ticker)
+
+      
+        ticker_vars[ticker] = var_data["parametric_var"][-1]
+        ticker_vols[ticker] = vol_data["garch"][-1]
+
+    # korelasyon matrisi ve portföy volatilitesi hesapla
+    corr_matrix = compute_correlation(tickers)
+    port_vol = compute_portfolio_volatility(weights, corr_matrix, ticker_vols)
+    
+     
+    
+    portfolio_var = 0.0 
+    portfolio_es = 0.0
+
+    high_corr_pairs = []
+    cols = corr_matrix.columns.tolist()
+    for i in range(len(cols)):
+        for j in range(i + 1, len(cols)):
+            corr_val = corr_matrix.iloc[i, j]
+            if abs(corr_val) >= 0.70:
+                high_corr_pairs.append({
+                    "a": cols[i],
+                    "b": cols[j],
+                    "corr": round(float(corr_val), 3)
+                })
+
+    return {
+        "tickers": tickers,
+        "weights": weights,
+        "portfolio_var": portfolio_var,
+        "portfolio_es": portfolio_es,
+        "portfolio_vol": port_vol,
+        "diversification_effect": 0.0,
+        "ticker_vars": ticker_vars,
+        "ticker_vols": ticker_vols,
+        "correlation_matrix": corr_matrix.round(3).to_dict(),
+        "high_corr_pairs": high_corr_pairs
+    }
