@@ -237,3 +237,43 @@ if __name__ == "__main__":
     print(summary.to_string(index=False))
     print(f"\nGüven düzeyi: {confidence:.2f}")
     print(f"Rolling pencere: {TRADING_DAYS} işlem günü")
+
+def compute_correlation(returns_df: pd.DataFrame) -> pd.DataFrame:
+    # Eksik verileri olan satırları at
+    cleaned = returns_df.dropna()
+
+    if cleaned.empty or len(cleaned.columns) < 2:
+        raise ValueError("Korelasyon için en az 2 tikcer ve yeterli veri olması gerekiyor.")
+    
+    return cleaned.corr(method = "pearson")
+
+def compute_portfolio_volatility(
+        retunrs_df: pd.DataFrame,
+        weights: list,
+        annualise: bool = True,
+) -> float:
+    """Verilen ağırlıklara göre portföyün günlük volatilitesini hesaplar"""
+    w = np.array(weights)
+
+    if abs(w.sum() - 1.0) > 1e-4:
+        raise ValueError(f"Ağırlıklar toplamı 1.0 olmalı, şu an: {w.sum(): .4f}")
+    
+    if len(w) != len(returns_df.columns):
+        raise ValueError("Ağırlık sayısı tikcer sayısıyla eşleşmiyor.")
+    
+    cleaned = returns_df.dropna()
+
+    # Kovaryans matrisi: korelasyondan farklı, volatiliteyi de içerir
+    cov_matrix = cleaned.cov().values
+
+    # Portföy varyansı
+    portfolio_variance = w @ cov_matrix @ w
+
+    # Standart sapma (volatilite)
+    portfolio_vol = np.sqrt(portfolio_variance)
+
+    if annualise:
+        portfolio_vol = portfolio_vol * np.sqrt(TRADING_DAYS)
+
+    return float(portfolio_vol)
+
