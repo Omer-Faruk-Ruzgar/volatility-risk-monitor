@@ -310,3 +310,57 @@ def get_portfolio_summary(tickers: list, weights: list) -> dict:
         "correlation_matrix":     corr_matrix.round(3).to_dict(),
         "high_corr_pairs":        high_corr_pairs,
     }
+
+def get_sentiment_alert(ticker: str) -> dict:
+    #  Haber verilerini al Son 15 haber
+    news_data = get_news(ticker, limit=15)
+    
+    # Negatif haberleri say ve ortalama skoru al
+    negative_news_count = 0
+    for item in news_data.get("news", []):
+        if item.get("sentiment_label") == "negative":
+            negative_news_count += 1
+            
+    aggregate_score = news_data.get("aggregate_sentiment", 0.0)
+
+    # Volatilite Verisini Al GARCH Fonksiyonu
+    vol_data = get_volatility(ticker)
+    garch_series = vol_data.get("garch", [])
+    
+    if len(garch_series) > 0:
+        current_vol = garch_series[-1] # En güncel GARCH değeri
+        
+        # Tarihi yüzdelik hesaplama 
+        import pandas as pd
+        vol_series_pd = pd.Series(garch_series)
+        vol_percentile = (vol_series_pd <= current_vol).mean() * 100.0
+    else:
+        current_vol = 0.0
+        vol_percentile = 0.0
+    
+    #Kurallar
+    is_high_volatility = vol_percentile > 75.0
+    has_many_negative_news = negative_news_count >= 3
+    
+    # Eğer hem volatilite yüksekse HEM DE negatif haber 3 veya daha fazlaysa alarm ver
+    should_warn = bool(is_high_volatility and has_many_negative_news)
+    
+    # Sebep
+    if should_warn:
+        reason = "Kritik: Yüksek volatilite ve yoğun negatif haber akışı!"
+    elif is_high_volatility:
+        reason = "Uyarı: Volatilite yüksek ancak haber akışı stabil."
+    elif has_many_negative_news:
+        reason = "Uyarı: Negatif haberler artıyor, volatilite şu an normal."
+    else:
+        reason = "Piyasa koşulları normal."
+
+    return {
+        "ticker": ticker,
+        "should_warn": should_warn,
+        "reason": reason,
+        "sentiment_score": aggregate_score,
+        "current_vol": round(current_vol, 5),
+        "vol_percentile": round(vol_percentile, 2),
+        "negative_news_count": negative_news_count
+    }

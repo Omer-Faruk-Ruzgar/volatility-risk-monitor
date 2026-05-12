@@ -81,3 +81,12 @@ class PortfolioSummaryResponse(BaseModel):
     ticker_vars: dict                    # {ticker: float}
     ticker_vols: dict                    # {ticker: float}  (son GARCH değeri)
     high_corr_pairs: List[dict]          # [{"a": "XOM", "b": "CVX", "corr": 0.91}]
+
+class SentimentAlertResponse(BaseModel):
+    ticker: str
+    should_warn: bool           # True ise frontend uyarı gösterir
+    reason: str                 # "Negatif haber yoğunluğu + yükselen volatilite" vb.
+    sentiment_score: float      # Aggregate sentiment
+    current_vol: float          # Son GARCH değeri
+    vol_percentile: float       # Tarihi yüzdelik: şu an kaçıncı persentilde
+    negative_news_count: int    # Son 24 saatteki negatif haber sayısı
