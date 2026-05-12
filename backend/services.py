@@ -19,6 +19,7 @@ from models.garch import garch_volatility
 from models.forecaster import train_forecaster, predict_vol
 from models.var import compute_var as _compute_var
 from models.var import compute_correlation, compute_portfolio_volatility
+from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer 
 
 #  ÖNBELLEK SİSTEMİ 
 _cache = {}        # Verileri saklayacağımız  sözlük
@@ -175,12 +176,13 @@ def clear_cache() -> dict: #onbellegi  temizler
 # FINNHUB HABER FONKSİYONU
 FINNHUB_API_KEY = os.getenv("FINNHUB_API_KEY")
 
+
+
 def get_news(ticker: str, limit: int = 10) -> dict:
-    #Finnhub API'den son 7 günlük hisse haberlerini çeker
+    # Finnhub API'den son 7 günlük hisse haberlerini çeker
     # Tarihleri hesapla
     to_date = datetime.now().strftime('%Y-%m-%d')
     from_date = (datetime.now() - timedelta(days=7)).strftime('%Y-%m-%d')
-    
     
     url = f"https://finnhub.io/api/v1/company-news?symbol={ticker}&from={from_date}&to={to_date}&token={FINNHUB_API_KEY}"
     
@@ -190,20 +192,67 @@ def get_news(ticker: str, limit: int = 10) -> dict:
             all_news = response.json()
             news_list = all_news[:limit] 
             
+            analyzer = SentimentIntensityAnalyzer() 
             formatted_news = []
+            total_compound = 0.0 # Ortalama hesabı için toplam skoru tutma
+
             for item in news_list:
+                headline = item.get("headline", "")
+                
+                
+                sentiment_dict = analyzer.polarity_scores(headline)
+                compound = sentiment_dict['compound']
+                
+                # Skora göre etiket üret
+                if compound > 0.05:
+                    label = "positive"
+                elif compound < -0.05:
+                    label = "negative"
+                else:
+                    label = "neutral"
+                    
+                total_compound += compound
+
+                
                 formatted_news.append({
-                    "headline": item.get("headline"),
+                    "headline": headline,
                     "source": item.get("source"),
                     "datetime": item.get("datetime"),
-                    "url": item.get("url")
+                    "url": item.get("url"),
+                    "compound_score": compound,
+                    "sentiment_label": label
                 })
-            return {"ticker": ticker, "news": formatted_news}
+            
+            #Tüm haberlerin ortalama skorunu hesapla
+            aggregate_sentiment = 0.0
+            if len(formatted_news) > 0:
+                aggregate_sentiment = total_compound / len(formatted_news)
+            
+            #  Ortalamaya göre trend belirle
+            if aggregate_sentiment > 0.05:
+                trend = "improving"
+            elif aggregate_sentiment < -0.05:
+                trend = "deteriorating"
+            else:
+                trend = "stable"
+
+            #  Yeni şablona uygun yanıt döndür
+            return {
+                "ticker": ticker, 
+                "news": formatted_news,
+                "aggregate_sentiment": round(aggregate_sentiment, 3),
+                "sentiment_trend": trend
+            }
             
     except Exception as e:
         print(f"Haber çekme hatası: {e}")
 
-    return {"ticker": ticker, "news": []}
+    return {
+        "ticker": ticker, 
+        "news": [],
+        "aggregate_sentiment": 0.0,
+        "sentiment_trend": "stable"
+    }
 
 
 def get_portfolio_summary(tickers: list, weights: list) -> dict:

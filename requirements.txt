@@ -145,5 +145,5 @@ websockets==16.0
 xgboost==3.2.0
 yfinance==1.2.0
 apscheduler==3.10.4
-
+vaderSentiment
 

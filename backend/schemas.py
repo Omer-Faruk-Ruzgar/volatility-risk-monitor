@@ -62,6 +62,8 @@ class NewsItem(BaseModel):
     source: str      # Haberin kaynağı 
     datetime: int    # Zaman 
     url: str         # Habere giden link
+    compound_score: float # -1.0 ile +1.0 arası VADER skoru
+    sentiment_label: str  # "positive", "negative", "neutral"
 
 class NewsResponse(BaseModel):
     ticker: str              # Hangi hisseye ait olduğu
