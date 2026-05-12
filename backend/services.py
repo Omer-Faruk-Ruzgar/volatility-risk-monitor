@@ -206,28 +206,37 @@ def get_news(ticker: str, limit: int = 10) -> dict:
     return {"ticker": ticker, "news": []}
 
 
-def get_portfolio_summary(tickers: list[str], weights: list[float]) -> dict:
+def get_portfolio_summary(tickers: list, weights: list) -> dict:
+    from models.var import compute_correlation, compute_portfolio_volatility
+
     ticker_vars = {}
     ticker_vols = {}
+    ticker_es   = {}
 
-    # VaR ve Volatilite verileri çekme
     for ticker in tickers:
         var_data = get_var(ticker, method="parametric")
         vol_data = get_volatility(ticker)
-
-      
         ticker_vars[ticker] = var_data["parametric_var"][-1]
+        ticker_es[ticker]   = var_data["es"][-1]
         ticker_vols[ticker] = vol_data["garch"][-1]
 
-    # korelasyon matrisi ve portföy volatilitesi hesapla
-    corr_matrix = compute_correlation(tickers)
-    port_vol = compute_portfolio_volatility(weights, corr_matrix, ticker_vols)
-    
-     
-    
-    portfolio_var = 0.0 
-    portfolio_es = 0.0
+    # DataFrame oluştur — korelasyon ve portföy vol için gerekli
+    returns_dict = {ticker: _load_returns(ticker) for ticker in tickers}
+    returns_df   = pd.DataFrame(returns_dict).dropna()
 
+    corr_matrix = compute_correlation(returns_df)
+    port_vol    = compute_portfolio_volatility(returns_df, weights)
+
+    # Ağırlıklı portföy VaR ve ES
+    w             = np.array(weights)
+    portfolio_var = float(w @ np.array([ticker_vars[t] for t in tickers]))
+    portfolio_es  = float(w @ np.array([ticker_es[t]   for t in tickers]))
+
+    # Çeşitlendirme etkisi
+    weighted_avg_vol      = float(w @ np.array([ticker_vols[t] for t in tickers]))
+    diversification_effect = weighted_avg_vol - port_vol
+
+    # Yüksek korelasyonlu çiftler
     high_corr_pairs = []
     cols = corr_matrix.columns.tolist()
     for i in range(len(cols)):
@@ -241,14 +250,14 @@ def get_portfolio_summary(tickers: list[str], weights: list[float]) -> dict:
                 })
 
     return {
-        "tickers": tickers,
-        "weights": weights,
-        "portfolio_var": portfolio_var,
-        "portfolio_es": portfolio_es,
-        "portfolio_vol": port_vol,
-        "diversification_effect": 0.0,
-        "ticker_vars": ticker_vars,
-        "ticker_vols": ticker_vols,
-        "correlation_matrix": corr_matrix.round(3).to_dict(),
-        "high_corr_pairs": high_corr_pairs
+        "tickers":                tickers,
+        "weights":                weights,
+        "portfolio_var":          portfolio_var,
+        "portfolio_es":           portfolio_es,
+        "portfolio_vol":          port_vol,
+        "diversification_effect": diversification_effect,
+        "ticker_vars":            ticker_vars,
+        "ticker_vols":            ticker_vols,
+        "correlation_matrix":     corr_matrix.round(3).to_dict(),
+        "high_corr_pairs":        high_corr_pairs,
     }
