@@ -66,3 +66,16 @@ class NewsItem(BaseModel):
 class NewsResponse(BaseModel):
     ticker: str              # Hangi hisseye ait olduğu
     news: List[NewsItem]     # Haberlerin listesi
+
+
+class PortfolioSummaryResponse(BaseModel):
+    tickers: List[str]
+    weights: List[float]
+    portfolio_var: float
+    portfolio_es: float
+    portfolio_vol: float
+    diversification_effect: float        # Weighted avg VaR - Portfolio VaR
+    correlation_matrix: dict             # {ticker: {ticker: float}}
+    ticker_vars: dict                    # {ticker: float}
+    ticker_vols: dict                    # {ticker: float}  (son GARCH değeri)
+    high_corr_pairs: List[dict]          # [{"a": "XOM", "b": "CVX", "corr": 0.91}]

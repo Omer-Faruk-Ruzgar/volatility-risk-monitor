@@ -7,10 +7,14 @@
 
 from fastapi import APIRouter, HTTPException
 
-from backend.schemas import VaRResponse , VolatilityResponse, ReturnsResponse , NewsResponse 
+from backend.schemas import VaRResponse , VolatilityResponse, ReturnsResponse , NewsResponse , PortfolioSummaryResponse
  # schemas.py'da tanımladığımız modeller
 
 from backend import services
+
+from typing import List
+from fastapi import Body
+
 
 # APIRouter örneği oluşturuyoruz.
 # Bu, endpoint'leri main.py'den ayrı bir dosyada tanımlamamızı sağlar.
@@ -97,3 +101,9 @@ def clear_cache():
 @router.get("/news/{ticker}", response_model=NewsResponse)
 def get_company_news(ticker: str, limit: int = 10):
     return services.get_news(ticker, limit)     
+
+
+
+@router.post("/portfolio", response_model=PortfolioSummaryResponse)
+def portfolio_endpoint(tickers: List[str] = Body(...), weights: List[float] = Body(...)):
+    return services.get_portfolio_summary(tickers, weights)
