@@ -13,6 +13,7 @@ from datetime  import datetime , timedelta
 
 import pandas as pd
 from sqlalchemy import create_engine
+import numpy as np
  
 from models.ewma import compute_ewma
 from models.garch import garch_volatility

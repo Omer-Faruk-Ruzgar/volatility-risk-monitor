@@ -128,35 +128,31 @@ def get_breach_stats(df: pd.DataFrame) -> dict:
     }
 
 
-def get_portfolio_analysis(tickers, weights) -> dict:
-    """Seçilen varlıklar ve ağırlıklara göre portföy analizi döner."""
-    # Her ticker için VaR çek, ağırlıklı portföy VaR'ı hesapla
-    import numpy as np
-    portfolio_var = 0.0
-    portfolio_es  = 0.0
- 
-    for ticker, weight in zip(tickers, weights):
-        try:
-            data = _get("/api/var", params={"ticker": ticker})
-            if data["parametric_var"]:
-                portfolio_var += weight * data["parametric_var"][-1]
-                portfolio_es  += weight * data["es"][-1]
-        except Exception:
-            pass
- 
-    corr_matrix = pd.DataFrame(
-        np.eye(len(tickers)),   # Gerçek korelasyon /portfolio endpoint'inde hesaplanacak
-        index=tickers,
-        columns=tickers,
-    )
- 
-    return {
-        "VaR": portfolio_var,
-        "ES": portfolio_es,
-        "Diversification_Effect": 0.0,
-        "Correlation_Matrix": corr_matrix,
+def get_portfolio_summary(tickers: list, weights: list) -> dict:
+    """
+    Seçilen hisseleri ve ağırlıkları backend'e gönderir.
+    Test (mock) veriler kaldırılmıştır, sadece API'den gelen gerçek verileri kullanır.
+    """
+    url = f"{BACKEND_URL}/api/portfolio"
+    
+    payload = {
+        "tickers": tickers,
+        "weights": weights
     }
-
+    
+    try:
+        # Gerçek piyasa hesaplamaları biraz daha uzun sürebileceği için timeout'u 15 saniyeye çıkardık
+        response = requests.post(url, json=payload, timeout=15)
+        response.raise_for_status() 
+        
+        # Sadece backend'den gelen gerçek JSON verisini döndür
+        return response.json()
+        
+    except requests.exceptions.RequestException as e:
+        # Backend hazır değilse veya çökerse artık test verisi uydurmak yerine sistemi uyar!
+        raise ValueError(f"Backend'den gerçek portföy verileri alınamadı: {e}")
+    
+    
 #  ANA SAYFA DASHBOARD VERİSİ
 
 @st.cache_data(ttl=300)  # Veriyi 300 saniye boyunca önbelleğe al
