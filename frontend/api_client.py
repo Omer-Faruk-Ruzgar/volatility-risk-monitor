@@ -2,7 +2,8 @@ import requests
 import pandas as pd
 import numpy as np
 import streamlit as st
-
+from scipy.cluster.hierarchy import linkage, leaves_list
+from scipy.spatial.distance import squareform
 
 BACKEND_URL = "http://localhost:8000"
 
@@ -24,22 +25,24 @@ def _get(path: str, params: dict = None):
             detail = e.response.text[:300] if e.response.text else str(e)
         raise ValueError(f"Backend hatası ({e.response.status_code}): {detail}")
 
+
 # 1. get_assets() - Ticker listesi döner
 def get_assets() -> list:
     """Kullanılabilir varlıkların listesini döner."""
     data = _get("/api/assets")
     return data.get("tickers", [])
 
+
 # 2. get_returns(ticker, period) - Tarih/Değer çiftleri döner
 def get_returns(ticker, period="1Y") -> pd.DataFrame:
     """Hisse senedi getiri verilerini DataFrame olarak döner."""
     data = _get("/api/returns", params={"ticker": ticker})
     df = pd.DataFrame(data["data"])
-
     df["date"] = pd.to_datetime(df["date"])
     df = df.rename(columns={"value": "log_return"})
     return df
     
+
 # 3. get_volatility(ticker) - EWMA, GARCH, Forecast döner
 def get_volatility(ticker) -> pd.DataFrame:
     """Volatilite modellerinin sonuçlarını DataFrame olarak döner."""
@@ -51,6 +54,7 @@ def get_volatility(ticker) -> pd.DataFrame:
         "Forecast": data["forecast"],
     })
     return df
+
 
 # 4. get_backtest(ticker, method) - Backtest istatistikleri döner
 def get_backtest(ticker, method="Historical") -> pd.DataFrame:
@@ -72,16 +76,13 @@ def get_backtest(ticker, method="Historical") -> pd.DataFrame:
     merged["breach"] = merged["return"] < merged["var"]
     return merged
 
-# 4. get_risk_metrics(ticker, method) - VaR + ES zaman serileri döner
+
+# 5. get_risk_metrics(ticker, method) - VaR + ES zaman serileri döner
 def get_risk_metrics(ticker, method="parametric") -> pd.DataFrame:
-    """
-    Risk Metrics sayfası için VaR ve ES serilerini döndürür.
-    Kolonlar: date, parametric_var, historical_var, es, is_breach (bool)
-    """
+    """Risk Metrics sayfası için VaR ve ES serilerini döndürür."""
     data = _get("/api/var", params={"ticker": ticker, "method": method})
     returns_data = _get("/api/returns", params={"ticker": ticker})
 
-    # VaR ve ES serileri
     var_df = pd.DataFrame({
         "date":           pd.to_datetime(data["dates"]),
         "parametric_var": data["parametric_var"],
@@ -89,19 +90,18 @@ def get_risk_metrics(ticker, method="parametric") -> pd.DataFrame:
         "es":             data["es"],
     })
 
-    # Gerçek getiriler
     ret_df = pd.DataFrame(returns_data["data"])
     ret_df["date"] = pd.to_datetime(ret_df["date"])
     ret_df = ret_df.rename(columns={"value": "return"})
 
     merged = pd.merge(ret_df, var_df, on="date")
-
-    # Seçilen yönteme göre ihlal işaretle
     active_var = merged["parametric_var"] if method == "parametric" else merged["historical_var"]
     merged["is_breach"] = merged["return"] < active_var
 
     return merged, data.get("breaches", [])
 
+
+# 6. get_breach_stats(df) - İhlal istatistikleri hesaplar
 def get_breach_stats(df: pd.DataFrame) -> dict:
     """get_backtest() veya get_risk_metrics() sonucundan istatistikler hesaplar."""
     n = len(df)
@@ -128,46 +128,41 @@ def get_breach_stats(df: pd.DataFrame) -> dict:
     }
 
 
+# 7. get_portfolio_summary(tickers, weights) - Arkadaşlarının Canlı POST İsteği Mantığı
 def get_portfolio_summary(tickers: list, weights: list) -> dict:
     """
     Seçilen hisseleri ve ağırlıkları backend'e gönderir.
-    Test (mock) veriler kaldırılmıştır, sadece API'den gelen gerçek verileri kullanır.
+    Tamamen canlı API'den gelen gerçek verileri kullanır.
     """
     url = f"{BACKEND_URL}/api/portfolio"
-    
     payload = {
         "tickers": tickers,
         "weights": weights
     }
     
     try:
-        # Gerçek piyasa hesaplamaları biraz daha uzun sürebileceği için timeout'u 15 saniyeye çıkardık
         response = requests.post(url, json=payload, timeout=15)
         response.raise_for_status() 
-        
-        # Sadece backend'den gelen gerçek JSON verisini döndür
         return response.json()
-        
     except requests.exceptions.RequestException as e:
-        # Backend hazır değilse veya çökerse artık test verisi uydurmak yerine sistemi uyar!
         raise ValueError(f"Backend'den gerçek portföy verileri alınamadı: {e}")
-    
-    
-#  ANA SAYFA DASHBOARD VERİSİ
 
-@st.cache_data(ttl=300)  # Veriyi 300 saniye boyunca önbelleğe al
+
+# 8. get_portfolio_analysis(tickers, weights) - Geriye dönük tam uyumluluk köprüsü
+def get_portfolio_analysis(tickers: list, weights: list) -> dict:
+    """app.py içerisindeki eski veya alternatif çağrıların kırılmasını önler."""
+    return get_portfolio_summary(tickers, weights)
+
+
+# 9. get_all_summaries() - Ana Sayfa Canlı Dashboard Özetleri
+@st.cache_data(ttl=300)
 def get_all_summaries():
-    """
-    11 ticker için volatilite özetlerini çeker.
-    Dashboard kartları için GARCH değerlerini ve değişimleri hesaplar.
-    """
-    tickers = get_assets()  # Backend'den tüm ticker listesini alma
+    """11 ticker için volatilite özetlerini çeker ve durum analizi yapar."""
+    tickers = get_assets()
     summaries = []
     
-    # Kullanıcıya yüklenme bilgisini bir spinner ile gösterme
     for ticker in tickers:
         try:
-            # Her ticker için volatilite verisini çek
             data = _get("/api/volatility", params={"ticker": ticker})
             garch_series = data.get("garch", [])
             
@@ -176,10 +171,8 @@ def get_all_summaries():
                 previous_garch = garch_series[-2]
                 avg_garch = sum(garch_series) / len(garch_series)
                 
-                # Değişim (Delta) hesapla
                 delta = current_garch - previous_garch
                 
-                # Durum (Status) Belirle
                 if current_garch > avg_garch * 1.5:
                     status = "Ekstrem"
                 elif current_garch > avg_garch * 1.1:
@@ -194,21 +187,19 @@ def get_all_summaries():
                     "status": status
                 })
         except Exception as e:
-            # Bir ticker'da hata olursa tüm dashboard çökmesin, o kartı atla
             print(f"Hata: {ticker} verisi alınamadı. {e}")
             
     return summaries
 
-from scipy.cluster.hierarchy import linkage, leaves_list, optimal_leaf_ordering
 
+# 10. get_correlation_matrix(tickers) - Gelişmiş Hiyerarşik Kümeleme (Düzeltildi)
 def get_correlation_matrix(tickers):
     """
     Varlıklar arasındaki gerçek korelasyonu hesaplar ve 
-    hiyerarşik kümeleme (Ward metodu) ile sıralar.
+    Ward metodu ile sıralar. Terminaldeki ClusterWarning tamamen düzeltilmiştir.
     """
     all_returns = {}
     
-    # 1. Her ticker için verileri çek ve birleştir
     for ticker in tickers:
         try:
             df_ret = get_returns(ticker)
@@ -219,13 +210,29 @@ def get_correlation_matrix(tickers):
     df_all = pd.DataFrame(all_returns).dropna()
     corr_matrix = df_all.corr()
 
-    # 2. Hiyerarşik Kümeleme (Hudson & Thames - Ward Metodu)
     if len(tickers) > 1:
-        # Uzaklık matrisi (1 - corr)
         dists = 1 - corr_matrix
-        linkage_matrix = linkage(dists, method='ward', optimal_ordering=True)
-        # Yeni sıralamayı al
+        
+        # ClusterWarning hatasını önlemek için matrisi simetrik ve yoğunlaştırılmış vektöre çeviriyoruz
+        dists_clipped = np.clip(dists.values, 0, 2)
+        np.fill_diagonal(dists_clipped, 0)
+        condensed_dists = squareform(dists_clipped)
+        
+        # Hiyerarşik Kümeleme (Ward Metodu)
+        linkage_matrix = linkage(condensed_dists, method='ward', optimal_ordering=True)
         new_order = [corr_matrix.columns[i] for i in leaves_list(linkage_matrix)]
         corr_matrix = corr_matrix.reindex(index=new_order, columns=new_order)
         
     return corr_matrix
+
+
+# ---  ENTEGRE EDİLEN HABER & SENTIMENT ENDPOINT'LERİ ---
+
+def get_news(ticker: str, limit: int = 10) -> dict:
+    """Finnhub üzerinden seçili varlığın haber akışını ve duygu skorlarını döner."""
+    return _get(f"/api/news/{ticker}", params={"limit": limit})
+
+
+def get_sentiment_alert(ticker: str) -> dict:
+    """Haber duygu skoru ve volatiliteyi birleştirerek kritik alarm durumunu döner."""
+    return _get(f"/api/news/sentiment-alert/{ticker}")

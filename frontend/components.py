@@ -2,13 +2,13 @@ import streamlit as st
 import plotly.express as px
 import plotly.graph_objects as go
 import pandas as pd
-
+from datetime import datetime
 
 def line_chart(df: pd.DataFrame, x: str, y: str, title: str):
     """Genel amaçlı tek serili çizgi grafiği (Örn: Returns)"""
     fig = px.line(df, x=x, y=y, title=title)
     fig.update_layout(xaxis_title="Tarih", yaxis_title=y)
-    st.plotly_chart(fig, use_container_width=True)
+    st.plotly_chart(fig, width='stretch')
 
 
 def multi_line_chart(df: pd.DataFrame, x: str, y_cols: list, title: str):
@@ -20,13 +20,12 @@ def multi_line_chart(df: pd.DataFrame, x: str, y_cols: list, title: str):
         return
     fig = px.line(df, x=x, y=available, title=title)
     fig.update_layout(xaxis_title="Tarih", yaxis_title="Volatilite", legend_title="Model")
-    st.plotly_chart(fig, use_container_width=True)
+    st.plotly_chart(fig, width='stretch')
 
 
 def var_breach_chart(df: pd.DataFrame, ticker: str, method: str = "parametric"):
     """
     Getiri serisi + VaR çizgisi + ihlal noktalarını tek bir grafikte gösterir.
-
     df kolonları: date, return, parametric_var / historical_var, es, is_breach
     """
     var_col = "parametric_var" if method == "parametric" else "historical_var"
@@ -34,7 +33,7 @@ def var_breach_chart(df: pd.DataFrame, ticker: str, method: str = "parametric"):
 
     fig = go.Figure()
 
-    # Getiri çizgisi (gri)
+    # Getiri çizgisi (mavi)
     fig.add_trace(go.Scatter(
         x=df["date"], y=df["return"],
         name="Günlük Getiri",
@@ -58,14 +57,15 @@ def var_breach_chart(df: pd.DataFrame, ticker: str, method: str = "parametric"):
 
     # İhlal noktaları (kırmızı daire)
     breach_col = "is_breach" if "is_breach" in df.columns else "breach"
-    breaches = df[df[breach_col]]
-    if not breaches.empty:
-        fig.add_trace(go.Scatter(
-            x=breaches["date"], y=breaches["return"],
-            mode="markers",
-            name=f"VaR İhlali ({len(breaches)})",
-            marker=dict(color="red", size=6, symbol="circle"),
-        ))
+    if breach_col in df.columns:
+        breaches = df[df[breach_col]]
+        if not breaches.empty:
+            fig.add_trace(go.Scatter(
+                x=breaches["date"], y=breaches["return"],
+                mode="markers",
+                name=f"VaR İhlali ({len(breaches)})",
+                marker=dict(color="red", size=6, symbol="circle"),
+            ))
 
     fig.update_layout(
         title=f"{ticker} — Getiri vs VaR (%95 Güven Aralığı)",
@@ -74,14 +74,14 @@ def var_breach_chart(df: pd.DataFrame, ticker: str, method: str = "parametric"):
         legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
         hovermode="x unified",
     )
-    st.plotly_chart(fig, use_container_width=True)
+    st.plotly_chart(fig, width='stretch')
 
 
 def summary_table(df: pd.DataFrame, title: str = ""):
     """Verileri şık bir tablo olarak gösterir"""
     if title:
         st.subheader(title)
-    st.dataframe(df, use_container_width=True)
+    st.dataframe(df, width='stretch')
 
 
 def ticker_card(ticker: str, garch_vol: float, delta: float, status: str):
@@ -89,7 +89,6 @@ def ticker_card(ticker: str, garch_vol: float, delta: float, status: str):
     Koyfin stili dinamik hisse özet kartı.
     Görünüm: Ticker Adı | Son Volatilite | Değişim | Durum Badge
     """
-    # Renk ve İkon Belirleme
     if status == "Ekstrem":
         color = "#FF4B4B"  # Kırmızı
         bg_color = "rgba(255, 75, 75, 0.1)"
@@ -103,11 +102,9 @@ def ticker_card(ticker: str, garch_vol: float, delta: float, status: str):
         bg_color = "rgba(40, 167, 69, 0.1)"
         badge = " NORMAL"
 
-    # Delta İkonu (Oklar)
     delta_icon = "▲" if delta > 0 else "▼"
-    delta_color = "red" if delta > 0 else "green" # Volatilite artışı risktir (kırmızı)
+    delta_color = "red" if delta > 0 else "green"
 
-    # Kart Tasarımı (Custom HTML & CSS)
     st.markdown(f"""
         <div style="
             background-color: #f8f9fa;
@@ -133,7 +130,7 @@ def ticker_card(ticker: str, garch_vol: float, delta: float, status: str):
 
 
 def regime_chart(df: pd.DataFrame, ticker: str):
-    # Veriyi garantiye al
+    """Tarihsel Olaylar ve Volatilite Rejimleri (Karanlık Tema)"""
     df = df.copy()
     df["date"] = pd.to_datetime(df["date"])
     
@@ -143,10 +140,10 @@ def regime_chart(df: pd.DataFrame, ticker: str):
     fig.add_trace(go.Scatter(
         x=df["date"], y=df["GARCH"],
         name="GARCH Volatilitesi",
-        line=dict(color="#00D4FF", width=2) # Neon mavi, karanlık modda şık durur
+        line=dict(color="#00D4FF", width=2)
     ))
 
-    # 2. Eşik Değerleri (Yatay Çizgilerle Gösterelim - Daha güvenli ve şık)
+    # 2. Eşik Değerleri
     avg_vol = df["GARCH"].mean()
     extreme_thresh = avg_vol * 1.5
     
@@ -163,7 +160,6 @@ def regime_chart(df: pd.DataFrame, ticker: str):
     for event in events:
         event_dt = pd.to_datetime(event["date"])
         if df["date"].min() <= event_dt <= df["date"].max():
-            # O tarihe en yakın GARCH değerini bul
             idx = (df["date"] - event_dt).abs().idxmin()
             y_val = df.loc[idx, "GARCH"]
             
@@ -184,5 +180,93 @@ def regime_chart(df: pd.DataFrame, ticker: str):
         yaxis_title="Oynaklık",
         hovermode="x unified"
     )
+    st.plotly_chart(fig, width='stretch')
+
+
+# ---  YENİ EKLEME: HABER VE SENTIMENT BİLEŞENLERİ ---
+
+def sentiment_badge(label: str) -> str:
+    """Sentiment etiketine veya skoruna göre renkli HTML badge döndürür."""
+    colors = {
+        "Positive": "#28A745",  # Yeşil
+        "Negative": "#FF4B4B",  # Kırmızı
+        "Neutral":  "#FFA500"   # Turuncu
+    }
     
-    st.plotly_chart(fig, use_container_width=True)
+    # Gelen veri sayısal string ise dinamik analiz et
+    try:
+        val = float(label)
+        if val > 0.05: color_label, color = "POSITIVE", "#28A745"
+        elif val < -0.05: color_label, color = "NEGATIVE", "#FF4B4B"
+        else: color_label, color = "NEUTRAL", "#FFA500"
+    except ValueError:
+        color_label = label.upper()
+        color = colors.get(label, "#888")
+
+    return f"""
+        <span style="
+            background-color: {color}22; 
+            color: {color}; 
+            padding: 2px 10px; 
+            border-radius: 12px; 
+            border: 1px solid {color}; 
+            font-size: 0.7rem; 
+            font-weight: bold;
+            display: inline-block;">
+            {color_label}
+        </span>
+    """
+
+
+def news_card(item: dict):
+    """Tek bir haber kartını sol kenarlık duygu rengiyle render eder (Issue Tasarım Kararı)."""
+    try:
+        dt_object = datetime.fromtimestamp(item.get('datetime', 0))
+        formatted_date = dt_object.strftime('%d %b %H:%M')
+    except Exception:
+        formatted_date = "Bilinmiyor"
+    
+    sentiment = item.get('sentiment', 'Neutral')
+    
+    if isinstance(sentiment, (int, float)):
+        border_color = "#28A745" if sentiment > 0.05 else ("#FF4B4B" if sentiment < -0.05 else "#FFA500")
+        sentiment_text = str(sentiment)
+    else:
+        border_colors = {"Positive": "#28A745", "Negative": "#FF4B4B", "Neutral": "#FFA500"}
+        border_color = border_colors.get(sentiment, "#888")
+        sentiment_text = sentiment
+
+    st.markdown(f"""
+        <div style="
+            border-left: 5px solid {border_color};
+            background-color: rgba(255, 255, 255, 0.05);
+            padding: 15px;
+            border-radius: 8px;
+            margin-bottom: 12px;
+            box-shadow: 2px 2px 8px rgba(0,0,0,0.1);">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+                <span style="color: #aaa; font-size: 0.8rem; font-weight: 500;">{item.get('source', 'KAYNAK')} • {formatted_date}</span>
+                {sentiment_badge(sentiment_text)}
+            </div>
+            <a href="{item.get('url', '#')}" target="_blank" style="text-decoration: none; color: #e0e0e0; font-weight: bold; font-size: 1rem; line-height: 1.4; display: block;">
+                {item.get('headline', 'Başlık bulunamadı')}
+            </a>
+        </div>
+    """, unsafe_allow_html=True)
+
+
+def sentiment_alert_banner(alert: dict):
+    """Kritik piyasa uyarı banner'ını 4 metrik kolonuyla render eder."""
+    if not alert or not alert.get("should_warn"):
+        st.success(" **Piyasa Durumu:** Olağandışı bir duygu baskısı veya volatilite saptanmadı.")
+        return
+
+    score = alert.get("sentiment_score", 0)
+    container = st.error if score < -0.5 else st.warning
+
+    with container(f" **Kritik Piyasa Alarmı:** {alert.get('reason', 'Yüksek Risk Seviyesi')}"):
+        c1, c2, c3, c4 = st.columns(4)
+        c1.metric("Duygu Skoru", f"{score:.2f}")
+        c2.metric("Negatif Haber", alert.get('negative_news_count', 0))
+        c3.metric("Anlık Volatilite", f"{alert.get('current_vol', 0):.4f}")
+        c4.metric("Vol. Yüzdelik", f"%{alert.get('vol_percentile', 0)}")
