@@ -68,7 +68,8 @@ class NewsItem(BaseModel):
 class NewsResponse(BaseModel):
     ticker: str              # Hangi hisseye ait olduğu
     news: List[NewsItem]     # Haberlerin listesi
-
+    aggregate_sentiment: float # Haberin sahip olduğu duygu skoru (-1 ile +1 arası)
+    sentiment_trend: str    # Haberin zaman içindeki gidiş yönü (Improving ya da Bullish)
 
 class PortfolioSummaryResponse(BaseModel):
     tickers: List[str]

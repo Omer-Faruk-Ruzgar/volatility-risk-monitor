@@ -40,6 +40,9 @@ def generate_portfolio_summary(data: dict) -> str:
     Kullanıcı 'Portföyü Analiz Et' butonuna bastığında çağrılır.
     Geçmiş olmadan tek seferlik özet üretir.
     """
+    api_key = os.environ.get("GEMINI_API_KEY")
+    if not api_key or not GENAI_AVAILABLE:
+        return "" # sessizce boş dönmesi bize gayet yeterli olur
     context = build_portfolio_context(data)
     system_prompt = f"""Sen profesyonel bir portföy risk analizi asistanısın. 
 Aşağıdaki verilere dayanarak yatırımcıya kısa, net ve teknik bir özet sun. 
@@ -47,25 +50,17 @@ Alım-satım tavsiyesi verme, sadece risk durumunu yorumla.
 
 Veriler:
 {context}"""
-
-    api_key = os.environ.get("GEMINI_API_KEY")
-    if not api_key:
-        return "API Anahtarı bulunamadı."
-        
-    genai.configure(api_key=api_key)
-    
     try:
+        genai.configure(api_key=api_key)
         model = genai.GenerativeModel(
             model_name="gemini-2.5-flash",
             system_instruction=system_prompt
         )
-        # Sadece 3-4 cümlelik net bir özet istiyoruz
         response = model.generate_content("Bu portföyün risk profilini 3-4 cümlede özetle.")
         return response.text
-    except Exception as e:
-        print(f"AI Özet Hatası: {e}")
+    except Exception as exc:
+        print(f"AI Özet Hatası: {exc}")
         return ""
-
 # ==========================================
 # 3. ESKİ GÖREV: SOHBET BOTU FONKSİYONLARI
 # ==========================================
@@ -74,7 +69,21 @@ def get_chat_system_prompt(context: str) -> str:
 Kullanıcıya yalnızca sana sağlanan model çıktılarına ve istatistiklere dayanarak yanıt ver. 
 Kesinlikle alım-satım tavsiyesi vermezsin, sadece kendi modelinin çıktılarını yorumlarsın.
 
-Kullanıcının o an incelediği portföyün güncel verileri (Bağlam):
+Yanıt verebileceğin konular:
+- Portföy VaR ve ES değerlerinin ne anlama geldiği ve nasıl yorumlanacağı
+- Yüksek korelasyonlu varlık çiftlerinin portföy riskine etkisi
+- Çeşitlendirme etkisinin yorumu ve iyileştirme önerileri
+- GARCH, EWMA ve XGBoost modellerinin farkları ve hangisine ne zaman güvenileceği
+- Volatilite rejimlerinin portföye olası etkileri
+- Kullanıcının mevcut portföyündeki spesifik risklerin açıklanması
+
+Yanıt verirken uyman gereken kurallar:
+- Her yanıtta mutlaka aşağıdaki bağlamdaki gerçek sayılara atıfta bulun
+- Soyut açıklama yapma, sayıları kullan
+- Alım-satım tavsiyesi verme, sadece risk durumunu yorumla
+- Bağlamda olmayan verilerden tahmin yapma
+
+Kullanıcının güncel portföy verileri:
 {context}
 """
 
@@ -95,11 +104,15 @@ def call_gemini_chat(messages: list, system: str) -> str:
         gemini_history.append({"role": role, "parts": [msg["content"]]})
         
     chat = model.start_chat(history=gemini_history)
-    new_message = messages[-1]["content"]
-    response = chat.send_message(new_message)
+    response = chat.send_message(messages[-1]["content"])
     return response.text
 
 def render_portfolio_chat(summary: dict):
+     # API anahtarı yoksa chatbot'u hiç gösterme
+    if not os.environ.get("GEMINI_API_KEY"):
+        st.info("🤖 AI özellikleri aktif değil. `.env` dosyasında `GEMINI_API_KEY` tanımlı olmalıdır.")
+        return
+    
     st.subheader("🤖 Portföy Risk Asistanı")
     st.markdown("Güncel risk modellemeleri hakkında sorular sorabilirsiniz.")
 
@@ -125,4 +138,5 @@ def render_portfolio_chat(summary: dict):
                     st.markdown(response_text)
                     st.session_state["chat_history"].append({"role": "assistant", "content": response_text})
                 except Exception as e:
-                    st.error(f"API Çağrısı sırasında bir hata oluştu: {e}")
+                    st.error(f"Yanıt alınamadı: {e}")
+                    # Hatalı mesajı geçmişe ekleme
