@@ -154,7 +154,9 @@ if page == "Ana Sayfa":
             
             if news_data.get('sentiment_trend'):
                 st.caption("Duygu Analizi Trendi")
-                st.line_chart(news_data['sentiment_trend'])
+                trend = news_data.get('sentiment_trend', 'stable')
+                trend_colors = {"improving": "🟢", "stable": "🟡", "deteriorating": "🔴"}
+                st.caption(f"Trend: {trend_colors.get(trend, '⚪')} {trend.capitalize()}")
             else:
                 st.info("Bu varlık için yeterli haber trendi bulunamadı.")
                 
@@ -360,7 +362,8 @@ elif page == "Portföy":
         st.session_state.selected_assets = [assets[0], assets[1]] if len(assets) > 1 else assets
     if "weight_inputs" not in st.session_state:
         st.session_state.weight_inputs = {t: round(100/len(st.session_state.selected_assets), 2) for t in st.session_state.selected_assets}
-
+    if "last_portfolio_data" not in st.session_state:
+        st.session_state["last_portfolio_data"] = None
     # Şablon Tanımları
     templates = {
         "Eşit Ağırlık": {"assets": assets[:11], "dist": "equal"},
@@ -455,6 +458,7 @@ elif page == "Portföy":
                 
                 # Canlı POST endpointi tetikleniyor
                 data = get_portfolio_summary(selected, final_w_list)
+                st.session_state["last_portfolio_data"] = data
                 corr_matrix = get_correlation_matrix(selected)
 
                 st.divider()
@@ -509,12 +513,8 @@ elif page == "Portföy":
     st.divider()
     
     # Gerçek zamanlı ağırlık verilerinin bota aktarılması
-    bot_summary = {
-        "allocation": {t: w for t, w in zip(selected, current_weights)}, 
-        "var_95": "-2.5%",
-        "volatility": "15.2%",
-        "diversification_effect": "+0.5%",
-        "high_corr_pairs": "Yok"
+    bot_summary = st.session_state.get("last_portfolio_data") or {
+        "allocation": {t: w for t, w in zip(selected, current_weights)}
     }
     
     # Arkadaşının chatbot bileşeni çağrılıyor

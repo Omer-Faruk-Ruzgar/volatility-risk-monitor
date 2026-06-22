@@ -188,9 +188,9 @@ def regime_chart(df: pd.DataFrame, ticker: str):
 def sentiment_badge(label: str) -> str:
     """Sentiment etiketine veya skoruna göre renkli HTML badge döndürür."""
     colors = {
-        "Positive": "#28A745",  # Yeşil
-        "Negative": "#FF4B4B",  # Kırmızı
-        "Neutral":  "#FFA500"   # Turuncu
+        "positive": "#28A745",  # Yeşil
+        "negative": "#FF4B4B",  # Kırmızı
+        "neutral":  "#FFA500"   # Turuncu
     }
     
     # Gelen veri sayısal string ise dinamik analiz et
@@ -226,7 +226,7 @@ def news_card(item: dict):
     except Exception:
         formatted_date = "Bilinmiyor"
     
-    sentiment = item.get('sentiment', 'Neutral')
+    sentiment = item.get('sentiment_label', 'neutral')
     
     if isinstance(sentiment, (int, float)):
         border_color = "#28A745" if sentiment > 0.05 else ("#FF4B4B" if sentiment < -0.05 else "#FFA500")
