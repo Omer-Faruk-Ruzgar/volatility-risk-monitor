@@ -2,6 +2,9 @@
 # `uvicorn backend.main:app --reload` komutunu çalıştırdığında,
 # uvicorn bu dosyayı okur ve sunucuyu başlatır.
 
+from dotenv import load_dotenv
+load_dotenv()
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from backend.routers import router

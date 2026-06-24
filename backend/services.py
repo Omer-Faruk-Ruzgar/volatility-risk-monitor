@@ -181,14 +181,21 @@ FINNHUB_API_KEY = os.getenv("FINNHUB_API_KEY")
 
 def get_news(ticker: str, limit: int = 10) -> dict:
     # Finnhub API'den son 7 günlük hisse haberlerini çeker
+    if not FINNHUB_API_KEY:
+        print("UYARI: FINNHUB_API_KEY bulunamadı. Haberler yüklenemez.")
+        return {"ticker": ticker, "news": [], "aggregate_sentiment": 0.0, "sentiment_trend": "stable"}
+
     # Tarihleri hesapla
     to_date = datetime.now().strftime('%Y-%m-%d')
     from_date = (datetime.now() - timedelta(days=7)).strftime('%Y-%m-%d')
-    
+
     url = f"https://finnhub.io/api/v1/company-news?symbol={ticker}&from={from_date}&to={to_date}&token={FINNHUB_API_KEY}"
-    
+
     try:
-        response = requests.get(url)
+        response = requests.get(url, timeout=10)
+        if response.status_code != 200:
+            print(f"Finnhub API hatası: {ticker} için HTTP {response.status_code}")
+            return {"ticker": ticker, "news": [], "aggregate_sentiment": 0.0, "sentiment_trend": "stable"}
         if response.status_code == 200:
             all_news = response.json()
             news_list = all_news[:limit] 
