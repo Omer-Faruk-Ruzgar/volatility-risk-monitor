@@ -126,13 +126,13 @@ def ticker_card(ticker: str, garch_vol: float, delta: float, status: str):
                     {delta_icon} {abs(delta*100):.2f}
                 </span>
             </div>
-            <div style="font-size: 0.75rem; color: #666; margin-top: 5px;">Son GARCH Volatilitesi</div>
+            <div style="font-size: 0.75rem; color: #8A9BB5; margin-top: 5px;">Son GARCH Volatilitesi</div>
         </div>
     """, unsafe_allow_html=True)
 
 
-def regime_chart(df: pd.DataFrame, ticker: str):
-    """Tarihsel Olaylar ve Volatilite Rejimleri (Karanlık Tema)"""
+def regime_chart(df: pd.DataFrame, ticker: str, show_opec: bool = True):
+    """Tarihsel Olaylar ve Volatilite Rejimleri - OPEC kararları opsiyonel."""
     df = df.copy()
     df["date"] = pd.to_datetime(df["date"])
 
@@ -142,119 +142,117 @@ def regime_chart(df: pd.DataFrame, ticker: str):
     fig.add_trace(go.Scatter(
         x=df["date"], y=df["GARCH"],
         name="GARCH Volatilitesi",
-        line=dict(color="#00D4FF", width=2)
+        line=dict(color="#00D4FF", width=2),
     ))
 
-    # 2. Eşik Değerleri
+    # 2. Ekstrem eşik yatay çizgisi
     avg_vol = df["GARCH"].mean()
     extreme_thresh = avg_vol * 1.5
-    
-    fig.add_hline(y=extreme_thresh, line_dash="dot", 
-                  annotation_text="Ekstrem Eşik", 
-                  line_color="red", opacity=0.5)
+    fig.add_hline(
+        y=extreme_thresh,
+        line_dash="dot",
+        line_color="#FF4B4B",
+        opacity=0.45,
+        annotation_text="Ekstrem Eşik",
+        annotation=dict(font=dict(size=9, color="#FF4B4B")),
+    )
 
-    # 3. Önemli Olaylar (Annotations)
-    events = [
+    # 3. Makro olaylar (nokta + ok)
+    macro_events = [
         {"date": "2020-03-16", "text": "COVID-19", "color": "#FF4B4B"},
-        {"date": "2022-02-24", "text": "Ukrayna", "color": "#FFAC1C"}
+        {"date": "2022-02-24", "text": "Ukrayna",  "color": "#FFAC1C"},
     ]
-
-    for event in events:
-        event_dt = pd.to_datetime(event["date"])
-        if df["date"].min() <= event_dt <= df["date"].max():
-            idx = (df["date"] - event_dt).abs().idxmin()
+    for ev in macro_events:
+        ev_dt = pd.to_datetime(ev["date"])
+        if df["date"].min() <= ev_dt <= df["date"].max():
+            idx   = (df["date"] - ev_dt).abs().idxmin()
             y_val = df.loc[idx, "GARCH"]
-            
             fig.add_annotation(
-                x=event_dt, y=y_val,
-                text=event["text"],
-                showarrow=True, arrowhead=1,
-                arrowcolor=event["color"],
-                bgcolor="rgba(255,255,255,0.8)",
-                font=dict(color="black", size=10)
+                x=ev_dt, y=y_val,
+                text=ev["text"],
+                showarrow=True, arrowhead=2, arrowwidth=1.5,
+                arrowcolor=ev["color"],
+                bgcolor="rgba(11,25,41,0.85)",
+                font=dict(color=ev["color"], size=10),
+                bordercolor=ev["color"], borderwidth=1, borderpad=3,
+            )
+
+    # 4. OPEC karar çizgileri
+    if show_opec:
+        date_min, date_max = df["date"].min(), df["date"].max()
+        in_range = [
+            e for e in OPEC_EVENTS
+            if date_min <= pd.to_datetime(e["date"]) <= date_max
+        ]
+        for i, ev in enumerate(in_range):
+            color = _OPEC_COLORS.get(ev["type"], "#E8A33D")
+            # Pozisyonları sırayla alt-üst değiştirerek annotation çakışmasını azalt
+            pos = "top left" if i % 2 == 0 else "top right"
+            fig.add_vline(
+                x=ev["date"],
+                line_width=1.2,
+                line_dash="dot",
+                line_color=color,
+                opacity=0.65,
+                annotation_text=ev["short"],
+                annotation_position=pos,
+                annotation=dict(
+                    font=dict(size=8, color=color),
+                    bgcolor="rgba(11,25,41,0.82)",
+                    bordercolor=color,
+                    borderpad=2,
+                    borderwidth=1,
+                ),
             )
 
     fig.update_layout(
-        title=f"<b>{ticker} Volatilite Rejimleri ve Kriz Dönemleri</b>",
+        title=f"<b>{ticker} Volatilite Rejimleri ve Tarihsel Olaylar</b>",
         template="plotly_dark",
-        height=500,
+        paper_bgcolor="#0B1929",
+        plot_bgcolor="#0B1929",
+        font=dict(color="#F1EFE8"),
+        height=520,
         xaxis_title="Tarih",
-        yaxis_title="Oynaklık",
-        hovermode="x unified"
+        yaxis_title="Oynaklık (GARCH)",
+        hovermode="x unified",
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
     )
     st.plotly_chart(fig, width='stretch')
 
 
-# ---  YENİ EKLEME: HABER VE SENTIMENT BİLEŞENLERİ ---
+# ---  HABER VE SENTIMENT BİLEŞENLERİ ---
 
-def sentiment_badge(label: str) -> str:
-    """Sentiment etiketine veya skoruna göre renkli HTML badge döndürür."""
-    colors = {
-        "positive": "#28A745",  # Yeşil
-        "negative": "#FF4B4B",  # Kırmızı
-        "neutral":  "#FFA500"   # Turuncu
+def _sentiment_display(sentiment) -> tuple[str, str]:
+    """Sentiment değerinden (label veya float) gösterim metni ve renk döndürür."""
+    if isinstance(sentiment, (int, float)):
+        if sentiment > 0.05:   return "● POZİTİF", "green"
+        if sentiment < -0.05:  return "● NEGATİF", "red"
+        return "● NÖTR", "orange"
+    mapping = {
+        "positive": ("● POZİTİF", "green"),
+        "negative": ("● NEGATİF", "red"),
+        "neutral":  ("● NÖTR",    "orange"),
     }
-    
-    # Gelen veri sayısal string ise dinamik analiz et
-    try:
-        val = float(label)
-        if val > 0.05: color_label, color = "POSITIVE", "#28A745"
-        elif val < -0.05: color_label, color = "NEGATIVE", "#FF4B4B"
-        else: color_label, color = "NEUTRAL", "#FFA500"
-    except ValueError:
-        color_label = label.upper()
-        color = colors.get(label, "#888")
-
-    return f"""
-        <span style="
-            background-color: {color}22; 
-            color: {color}; 
-            padding: 2px 10px; 
-            border-radius: 12px; 
-            border: 1px solid {color}; 
-            font-size: 0.7rem; 
-            font-weight: bold;
-            display: inline-block;">
-            {color_label}
-        </span>
-    """
+    return mapping.get(str(sentiment).lower(), ("● NÖTR", "orange"))
 
 
 def news_card(item: dict):
-    """Tek bir haber kartını sol kenarlık duygu rengiyle render eder (Issue Tasarım Kararı)."""
+    """Haber kartını native Streamlit container ile render eder."""
     try:
-        dt_object = datetime.fromtimestamp(item.get('datetime', 0))
-        formatted_date = dt_object.strftime('%d %b %H:%M')
+        formatted_date = datetime.fromtimestamp(item.get('datetime', 0)).strftime('%d %b %H:%M')
     except Exception:
         formatted_date = "Bilinmiyor"
-    
-    sentiment = item.get('sentiment_label', 'neutral')
-    
-    if isinstance(sentiment, (int, float)):
-        border_color = "#28A745" if sentiment > 0.05 else ("#FF4B4B" if sentiment < -0.05 else "#FFA500")
-        sentiment_text = str(sentiment)
-    else:
-        border_colors = {"Positive": "#28A745", "Negative": "#FF4B4B", "Neutral": "#FFA500"}
-        border_color = border_colors.get(sentiment, "#888")
-        sentiment_text = sentiment
 
-    st.markdown(f"""
-        <div style="
-            border-left: 5px solid {border_color};
-            background-color: rgba(255, 255, 255, 0.05);
-            padding: 15px;
-            border-radius: 8px;
-            margin-bottom: 12px;
-            box-shadow: 2px 2px 8px rgba(0,0,0,0.1);">
-            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
-                <span style="color: #aaa; font-size: 0.8rem; font-weight: 500;">{item.get('source', 'KAYNAK')} • {formatted_date}</span>
-                {sentiment_badge(sentiment_text)}
-            </div>
-            <a href="{item.get('url', '#')}" target="_blank" style="text-decoration: none; color: #e0e0e0; font-weight: bold; font-size: 1rem; line-height: 1.4; display: block;">
-                {item.get('headline', 'Başlık bulunamadı')}
-            </a>
-        </div>
-    """, unsafe_allow_html=True)
+    badge_text, badge_color = _sentiment_display(item.get('sentiment_label', 'neutral'))
+    headline = item.get('headline', 'Başlık bulunamadı')
+    url      = item.get('url', '#')
+    source   = item.get('source', 'Kaynak')
+
+    with st.container(border=True):
+        c_meta, c_badge = st.columns([3, 1])
+        c_meta.caption(f"**{source}** • {formatted_date}")
+        c_badge.markdown(f"<div style='text-align:right'>:{badge_color}[**{badge_text}**]</div>", unsafe_allow_html=True)
+        st.markdown(f"[{headline}]({url})")
 
 
 def sentiment_alert_banner(alert: dict):

@@ -3,6 +3,7 @@ import pandas as pd
 import numpy as np
 import plotly.graph_objects as go
 import plotly.express as px
+import io
 from dotenv import load_dotenv
 
 # .env Dosyasını Yükle (Chatbot için API anahtarları)
@@ -16,20 +17,70 @@ from api_client import (
     get_assets, get_returns, get_volatility,
     get_risk_metrics, get_backtest, get_breach_stats,
     get_portfolio_summary, get_all_summaries, get_correlation_matrix,
-    get_news, get_sentiment_alert
+    get_news, get_sentiment_alert, get_data_status, run_stress_test
 )
 
 # Profesyonel Görsel Bileşenler
 from components import (
-    line_chart, multi_line_chart, regime_chart, 
-    var_breach_chart, summary_table, ticker_card, 
-    news_card, sentiment_alert_banner
+    line_chart, multi_line_chart, regime_chart,
+    var_breach_chart, summary_table, ticker_card,
+    news_card, sentiment_alert_banner, OPEC_EVENTS, _OPEC_COLORS
 )
 
 # Sayfa Ayarları
 st.set_page_config(page_title="Volatility Risk Monitor", layout="wide")
 
-# Ticker listesini önbellekle — her sayfa yenilenişinde tekrar çekilmez
+# Global CSS - tüm sayfalarda yüklenir
+st.markdown("""
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@600;700&family=Inter:wght@400;500;600&family=IBM+Plex+Mono:wght@500&display=swap');
+
+/* Gövde ve genel metin - Inter */
+html, body, [class*="st-"], .stMarkdown p, .stCaption,
+label, .stRadio label, .stSelectbox label,
+.stMultiSelect label, .stNumberInput label,
+.stTextInput label, div[data-testid="stSidebarContent"] {
+    font-family: 'Inter', sans-serif !important;
+}
+
+/* Sayfa ve bölüm başlıkları - Space Grotesk */
+h1, h2, h3,
+.stSidebar h1,
+div[data-testid="stSidebarContent"] .stMarkdown h1,
+div[data-testid="stSidebarContent"] .stMarkdown h2 {
+    font-family: 'Space Grotesk', sans-serif !important;
+    letter-spacing: -0.02em;
+}
+
+/* Sayısal metrik değerleri - IBM Plex Mono */
+div[data-testid="stMetricValue"],
+div[data-testid="stMetricDelta"],
+.stDataFrame td,
+code, pre {
+    font-family: 'IBM Plex Mono', monospace !important;
+}
+
+</style>
+""", unsafe_allow_html=True)
+
+TICKER_NAMES = {
+    "XOM":  "ExxonMobil",
+    "CVX":  "Chevron",
+    "USO":  "US Oil Fund ETF",
+    "BNO":  "Brent Oil ETF",
+    "XLE":  "Energy Select ETF",
+    "UNG":  "Natural Gas ETF",
+    "KSA":  "Saudi Arabia ETF",
+    "GLD":  "Gold ETF",
+    "WEAT": "Wheat ETF",
+    "TLT":  "20Y Treasury ETF",
+    "SPY":  "S&P 500 ETF",
+}
+
+def ticker_label(t: str) -> str:
+    return f"{TICKER_NAMES.get(t, t)} ({t})"
+
+# Ticker listesini önbellekle, her sayfa yenilenişinde tekrar çekilmez
 @st.cache_data(ttl=300)
 def fetch_assets():
     try:
@@ -41,29 +92,76 @@ def fetch_assets():
 st.sidebar.title("Volatility Risk Monitor")
 page = st.sidebar.radio(
     "Gezinti:",
-    ["Ana Sayfa", "Returns", "Volatility", "Risk Metrics", "Backtest", "Portföy"]
+    ["Ana Sayfa", "Returns", "Volatility", "Risk Metrics", "Backtest", "Portföy", "Kriz Simülasyonu"]
 )
 
 # Ana Sayfa dışındaki sayfalar için ticker seçici
-if page != "Ana Sayfa" and page != "Portföy":
+if page != "Ana Sayfa" and page != "Portföy" and page != "Kriz Simülasyonu":
     assets = fetch_assets()
     selected_ticker = st.sidebar.selectbox(
         "Ticker:",
         assets,
+        format_func=ticker_label,
         index=0,
         key="selected_ticker"
     )
     
 st.sidebar.divider()
+
+# Veri güncelleme durumu
+try:
+    status = get_data_status()
+    last_raw = status.get("last_update")
+    next_raw = status.get("next_scheduled")
+
+    if last_raw:
+        last_dt = last_raw[:10]  # "2026-06-20T21:30:00Z" → "2026-06-20"
+        st.sidebar.success(f"Son güncelleme: **{last_dt}**")
+    else:
+        st.sidebar.warning("Veri bulunamadı.")
+
+    if next_raw:
+        next_dt = next_raw.replace("T", " ").replace("Z", " UTC")[:19] + " UTC"
+        st.sidebar.caption(f"Sonraki güncelleme: {next_dt}")
+except Exception:
+    st.sidebar.caption("Veri durumu alınamadı.")
+
+st.sidebar.divider()
 st.sidebar.caption("Backend: `uvicorn backend.main:app --reload`")
 st.sidebar.caption("Frontend: `streamlit run app.py`")
 
 
-# Yardımcı: Ticker sekmeleri — analiz sayfaları buradan ticker alır
-def ticker_tabs() -> str:
+def to_excel_bytes(sheets: dict) -> bytes:
+    """{'Sayfa Adı': dataframe} sözlüğünü çok sayfalı Excel byte'ına dönüştürür."""
+    buf = io.BytesIO()
+    with pd.ExcelWriter(buf, engine="openpyxl") as writer:
+        for sheet_name, df in sheets.items():
+            df.to_excel(writer, sheet_name=sheet_name[:31], index=False)
+    return buf.getvalue()
+
+
+_PERIOD_DAYS = {"1A": 30, "3A": 90, "6A": 180, "1Y": 365, "Tümü": None}
+
+def apply_date_filter(df: pd.DataFrame, key: str) -> pd.DataFrame:
+    """Grafik üstüne tarih aralığı seçici ekler, seçime göre filtrelenmiş df döner."""
+    choice = st.segmented_control(
+        "Tarih Aralığı:",
+        list(_PERIOD_DAYS.keys()),
+        default="1Y",
+        key=f"period_{key}",
+    )
+    days = _PERIOD_DAYS.get(choice)
+    if days is not None:
+        cutoff = df["date"].max() - pd.Timedelta(days=days)
+        df = df[df["date"] >= cutoff].copy()
+    return df
+
+
+# Yardımcı: Ticker sekmeleri, analiz sayfaları buradan ticker alır
+def ticker_tabs():
     """Tüm ticker'ları sekme olarak gösterir, seçili olanı döndürür."""
     assets = fetch_assets()
-    tabs = st.tabs(assets)
+    tabs = st.tabs([ticker_label(t) for t in assets])
     for i, tab in enumerate(tabs):
         with tab:
             st.session_state["selected_ticker"] = assets[i]
@@ -185,8 +283,10 @@ elif page == "Returns":
 
     def render_returns(ticker):
         try:
-            with st.spinner(f"{ticker} verileri yükleniyor..."):
+            with st.spinner(f"{ticker_label(ticker)} verileri yükleniyor..."):
                 df = get_returns(ticker)
+
+            df = apply_date_filter(df, key=f"ret_{ticker}")
 
             c1, c2, c3 = st.columns(3)
             c1.metric("Ortalama Günlük Getiri", f"{df['log_return'].mean():.4f}")
@@ -194,13 +294,20 @@ elif page == "Returns":
             c3.metric("Veri Noktası",            f"{len(df):,}")
 
             st.divider()
-            line_chart(df, x="date", y="log_return", title=f"{ticker} — Günlük Logaritmik Getiriler")
+            line_chart(df, x="date", y="log_return", title=f"{ticker} - Günlük Logaritmik Getiriler")
 
             df["cumulative"] = df["log_return"].cumsum()
-            line_chart(df, x="date", y="cumulative", title=f"{ticker} — Kümülatif Log Getiri")
+            line_chart(df, x="date", y="cumulative", title=f"{ticker} - Kümülatif Log Getiri")
+
+            st.divider()
+            excel = to_excel_bytes({"Getiriler": df.rename(columns={"date": "Tarih", "log_return": "Log Getiri", "cumulative": "Kümülatif"})})
+            st.download_button("Excel İndir", data=excel, file_name=f"{ticker}_getiriler.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
 
         except ConnectionError as e:
-            st.error(f" {e}")
+            st.error(str(e))
+            st.code("uvicorn backend.main:app --reload", language="bash")
+        except TimeoutError as e:
+            st.error(str(e))
         except Exception as e:
             st.error(f"Hata: {e}")
 
@@ -243,8 +350,16 @@ elif page == "Volatility":
             }).round(4)
             st.dataframe(stats, width='stretch', hide_index=True)
 
+            st.divider()
+            export_df = df.rename(columns={"date": "Tarih", "EWMA": "EWMA", "GARCH": "GARCH", "Forecast": "XGBoost Forecast"})
+            excel = to_excel_bytes({"Volatilite": export_df, "Özet İstatistikler": stats})
+            st.download_button("Excel İndir", data=excel, file_name=f"{ticker}_volatilite.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+
         except ConnectionError as e:
-            st.error(f"{e}")
+            st.error(str(e))
+            st.code("uvicorn backend.main:app --reload", language="bash")
+        except TimeoutError as e:
+            st.error(str(e))
         except Exception as e:
             st.error(f"Hata: {e}")
 
@@ -264,10 +379,16 @@ elif page == "Risk Metrics":
 
     def render_risk(ticker):
         try:
-            with st.spinner(f"{ticker} için VaR ve ES hesaplanıyor..."):
+            with st.spinner(f"{ticker_label(ticker)} için VaR ve ES hesaplanıyor..."):
                 df, breach_dates = get_risk_metrics(ticker, method=method)
 
+            df = apply_date_filter(df, key=f"risk_{ticker}_{method}")
             stats = get_breach_stats(df)
+
+            # breach_dates'i de aynı aralıkla kırp
+            if breach_dates:
+                min_date = df["date"].min()
+                breach_dates = [d for d in breach_dates if pd.Timestamp(d) >= min_date]
 
             c1, c2, c3, c4 = st.columns(4)
             c1.metric("VaR İhlal Sayısı", stats["breach_count"])
@@ -285,8 +406,16 @@ elif page == "Risk Metrics":
             else:
                 st.success("Seçili dönemde VaR ihlali bulunmuyor.")
 
+            st.divider()
+            export_df = df.rename(columns={"date": "Tarih", "return": "Getiri", "var": "VaR (%95)", "es": "ES", "is_breach": "İhlal"})
+            excel = to_excel_bytes({"Risk Metrikleri": export_df})
+            st.download_button("Excel İndir", data=excel, file_name=f"{ticker}_risk_metrikleri.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+
         except ConnectionError as e:
-            st.error(f" {e}")
+            st.error(str(e))
+            st.code("uvicorn backend.main:app --reload", language="bash")
+        except TimeoutError as e:
+            st.error(str(e))
         except Exception as e:
             st.error(f"Hata: {e}")
 
@@ -305,9 +434,10 @@ elif page == "Backtest":
 
     def render_backtest(ticker):
         try:
-            with st.spinner(f"{ticker} için backtest hesaplanıyor..."):
+            with st.spinner(f"{ticker_label(ticker)} için backtest hesaplanıyor..."):
                 df = get_backtest(ticker, method=method)
 
+            df = apply_date_filter(df, key=f"bt_{ticker}_{method}")
             stats = get_breach_stats(df)
 
             c1, c2, c3, c4 = st.columns(4)
@@ -332,7 +462,7 @@ elif page == "Backtest":
                 line=dict(color="red", width=2, dash="dash"),
             ))
             fig.update_layout(
-                title=f"{ticker} — Backtest: Getiri vs VaR (kırmızı = ihlal)",
+                title=f"{ticker} - Backtest: Getiri vs VaR (kırmızı = ihlal)",
                 xaxis_title="Tarih", yaxis_title="Günlük Getiri",
                 bargap=0.1, hovermode="x unified",
                 legend=dict(orientation="h", yanchor="bottom", y=1.02),
@@ -349,8 +479,16 @@ elif page == "Backtest":
                 breach_only = breach_only.sort_values("date", ascending=False)
                 st.dataframe(breach_only, width='stretch', hide_index=True)
 
+            st.divider()
+            export_df = df.rename(columns={"date": "Tarih", "return": "Getiri", "var": "VaR (%95)", "breach": "İhlal"})
+            excel = to_excel_bytes({"Backtest": export_df, "İhlal Günleri": breach_only if not breach_only.empty else pd.DataFrame()})
+            st.download_button("Excel İndir", data=excel, file_name=f"{ticker}_backtest.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+
         except ConnectionError as e:
-            st.error(f" {e}")
+            st.error(str(e))
+            st.code("uvicorn backend.main:app --reload", language="bash")
+        except TimeoutError as e:
+            st.error(str(e))
         except Exception as e:
             st.error(f"Hata: {e}")
 
@@ -409,7 +547,7 @@ elif page == "Portföy":
 
     # 2. VARLIK SEÇİMİ (MULTISELECT)
     safe_defaults = [a for a in st.session_state.selected_assets if a in assets]
-    selected = st.multiselect("Portföy Varlıkları:", assets, default=safe_defaults, key="p_assets_multi")
+    selected = st.multiselect("Portföy Varlıkları:", assets, default=safe_defaults, format_func=ticker_label, key="p_assets_multi")
     st.session_state.selected_assets = selected
 
     if not selected:
