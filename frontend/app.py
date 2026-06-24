@@ -79,8 +79,20 @@ def render_for_ticker(render_fn):
 if page == "Ana Sayfa":
     st.markdown("""
         <style>
-        .main-title { font-size: 42px; font-weight: bold; text-align: center; color: #1E3A5F; margin-bottom: 8px; }
-        .sub-title  { font-size: 17px; text-align: center; color: #555; margin-bottom: 32px; }
+        .main-title { font-size: 42px; font-weight: 700; text-align: center; color: #E8A33D; margin-bottom: 8px; font-family: 'Space Grotesk', sans-serif; letter-spacing: -0.02em; }
+        .sub-title  { font-size: 17px; text-align: center; color: #8A9BB5; margin-bottom: 32px; font-family: 'Inter', sans-serif; }
+        .stApp::before {
+            content: "";
+            position: fixed;
+            bottom: -5%;
+            right: -8%;
+            width: 35%;
+            height: 35%;
+            z-index: 0;
+            pointer-events: none;
+            background-image: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 280 220"><defs><linearGradient id="lg1" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="%23E8A33D"/><stop offset="1" stop-color="%231D9E75"/></linearGradient></defs><path d="M10,170 C60,120 100,200 150,140 C200,80 230,160 270,110" fill="none" stroke="url(%23lg1)" stroke-width="2" opacity="0.28"/><path d="M0,200 C50,160 100,220 150,170 C200,120 240,190 280,150" fill="none" stroke="url(%23lg1)" stroke-width="2" opacity="0.18"/></svg>');
+            background-repeat: no-repeat;
+        }
         </style>
     """, unsafe_allow_html=True)
 
