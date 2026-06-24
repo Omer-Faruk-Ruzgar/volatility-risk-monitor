@@ -62,6 +62,14 @@ code, pre {
     font-family: 'IBM Plex Mono', monospace !important;
 }
 
+/* Material Symbols ikon fontu - [class*="st-"] override'ından koru
+   Streamlit 1.55 "Material Symbols Rounded" kullanir, font local static/media klasöründen gelir */
+span[data-testid="stIconMaterial"],
+[data-testid="stSidebarCollapseButton"] span,
+[data-testid="stExpandSidebarButton"] span {
+    font-family: 'Material Symbols Rounded' !important;
+}
+
 </style>
 """, unsafe_allow_html=True)
 

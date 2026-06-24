@@ -278,7 +278,12 @@ def news_card(item: dict):
     with st.container(border=True):
         c_meta, c_badge = st.columns([3, 1])
         c_meta.caption(f"**{source}** • {formatted_date}")
-        c_badge.markdown(f"<div style='text-align:right'>:{badge_color}[**{badge_text}**]</div>", unsafe_allow_html=True)
+        _BADGE_HEX = {"green": "#1D9E75", "red": "#FF4B4B", "orange": "#E8A33D"}
+        hex_color = _BADGE_HEX.get(badge_color, "#9FB3C8")
+        c_badge.markdown(
+            f"<div style='text-align:right'><span style='color:{hex_color};font-weight:600;font-size:0.8rem;'>{badge_text}</span></div>",
+            unsafe_allow_html=True,
+        )
         st.markdown(f"[{headline}]({url})")
 
 
