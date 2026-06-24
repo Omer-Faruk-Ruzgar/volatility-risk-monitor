@@ -282,6 +282,107 @@ def news_card(item: dict):
         st.markdown(f"[{headline}]({url})")
 
 
+def geo_risk_map(regions: dict):
+    """
+    Jeopolitik risk gostergesi: Scattergeo ile dunya haritasinda
+    bolge bazli gerilim skorlarini renk ve boyut olarak gosterir.
+    Renk skalasi mevcut Bloomberg temasiyla tutarlidir.
+    """
+    if not regions:
+        st.info("Risk bolgesi verisi alinamamadi.")
+        return
+
+    labels  = [r["label"]  for r in regions.values()]
+    lats    = [r["lat"]    for r in regions.values()]
+    lons    = [r["lon"]    for r in regions.values()]
+    scores  = [r["score"]  for r in regions.values()]
+
+    fig = go.Figure(go.Scattergeo(
+        lat=lats,
+        lon=lons,
+        text=labels,
+        customdata=scores,
+        hovertemplate=(
+            "<b>%{text}</b><br>"
+            "Gerilim Skoru: %{customdata:.1f}/10<extra></extra>"
+        ),
+        mode="markers+text",
+        textposition="top center",
+        textfont=dict(color="#F1EFE8", size=11, family="Inter"),
+        marker=dict(
+            size=[10 + s * 3 for s in scores],
+            color=scores,
+            colorscale=[
+                [0.0, "#1D9E75"],
+                [0.4, "#E8A33D"],
+                [0.7, "#E0524F"],
+                [1.0, "#B91C1C"],
+            ],
+            cmin=0,
+            cmax=10,
+            colorbar=dict(
+                title=dict(text="Gerilim", font=dict(color="#9FB3C8")),
+                tickfont=dict(color="#9FB3C8"),
+            ),
+            line=dict(width=1, color="#0B1929"),
+        ),
+    ))
+
+    fig.update_geos(
+        bgcolor="#0B1929",
+        landcolor="#142841",
+        showocean=True,
+        oceancolor="#0B1929",
+        showcountries=True,
+        countrycolor="#1F3A5C",
+        showcoastlines=True,
+        coastlinecolor="#1F3A5C",
+        projection_type="natural earth",
+    )
+    fig.update_layout(
+        paper_bgcolor="#0B1929",
+        margin=dict(l=0, r=0, t=10, b=0),
+        height=380,
+        geo=dict(
+            center=dict(lat=25, lon=20),
+            projection_scale=1.1,
+        ),
+    )
+    st.plotly_chart(fig, use_container_width=True)
+
+    # Bolge detay kartlari
+    cols = st.columns(2)
+    for i, (region_id, r) in enumerate(regions.items()):
+        score_color = (
+            "#B91C1C" if r["score"] >= 7
+            else "#E0524F" if r["score"] >= 4
+            else "#E8A33D" if r["score"] >= 2
+            else "#1D9E75"
+        )
+        hl_info = f' ({r["headline_count"]} haber)' if r.get("headline_count", 0) > 0 else " (veri yok)"
+        with cols[i % 2]:
+            st.markdown(
+                f'<div style="background:#142841; border-radius:8px; '
+                f'padding:10px 12px; margin-bottom:8px; '
+                f'border-left:3px solid {score_color};">'
+                f'<div style="display:flex; justify-content:space-between; align-items:center;">'
+                f'<span style="font-size:12px; font-weight:600; color:#F1EFE8;">{r["label"]}</span>'
+                f'<span style="font-size:16px; font-weight:700; color:{score_color};">'
+                f'{r["score"]:.1f}<span style="font-size:10px; color:#8A9BB5;">/10</span></span>'
+                f'</div>'
+                f'<div style="font-size:9px; color:#8A9BB5; margin-top:4px;">'
+                f'{", ".join(r["tickers"])}{hl_info}</div>'
+                f'</div>',
+                unsafe_allow_html=True,
+            )
+
+    st.caption(
+        "GLD, TLT ve SPY belirli bir bolgeden bagimsiz olmakla birlikte "
+        "bu dort bolgenin toplam risk etkisine tepki verebilir. "
+        "Skor hesabi: VADER compound ortalamasi, negatif taraf 0-10 araligina olceklendi."
+    )
+
+
 def sentiment_alert_banner(alert: dict):
     """Kritik piyasa uyarı banner'ını 4 metrik kolonuyla render eder."""
     if not alert or not alert.get("should_warn"):

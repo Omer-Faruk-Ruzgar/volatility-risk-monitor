@@ -17,14 +17,16 @@ from api_client import (
     get_assets, get_returns, get_volatility,
     get_risk_metrics, get_backtest, get_breach_stats,
     get_portfolio_summary, get_all_summaries, get_correlation_matrix,
-    get_news, get_sentiment_alert, get_data_status, run_stress_test
+    get_news, get_sentiment_alert, get_data_status, run_stress_test,
+    get_geo_risk,
 )
 
 # Profesyonel Görsel Bileşenler
 from components import (
     line_chart, multi_line_chart, regime_chart,
     var_breach_chart, summary_table, ticker_card,
-    news_card, sentiment_alert_banner, OPEC_EVENTS, _OPEC_COLORS
+    news_card, sentiment_alert_banner, geo_risk_map,
+    OPEC_EVENTS, _OPEC_COLORS,
 )
 
 # Sayfa Ayarları
@@ -231,6 +233,22 @@ if page == "Ana Sayfa":
     st.markdown("<br>", unsafe_allow_html=True)
     st.info(" **İpucu:** Yukarıdaki kartlar son GARCH volatilitesini gösterir. Detaylı analiz için sol menüden ilgili sekmeye geçiş yapabilirsiniz.")
     
+    # JEOPOLITİK RİSK HARİTASI
+    st.divider()
+    st.subheader("Jeopolitik Risk Gostergesi")
+    st.caption(
+        "Finnhub haber akisindan VADER duygu analizi ile hesaplanan bolgesel gerilim skoru. "
+        "Buyuk ve kirmizi daireler yuksek riski gosteriyor."
+    )
+    try:
+        with st.spinner("Bolgesel gerilim skorlari hesaplaniyor..."):
+            geo_regions = get_geo_risk()
+        geo_risk_map(geo_regions)
+    except ConnectionError:
+        st.warning("Jeopolitik risk haritasi yüklenemedi. Backend baglantisini kontrol edin.")
+    except Exception as e:
+        st.warning(f"Jeopolitik risk gostergesi yuklenemedi: {e}")
+
     # HABER AKIŞI VE DUYGU ANALİZİ (SENTIMENT)
     st.divider()
     st.subheader("Piyasa Duygu Analizi ve Haber Akışı")

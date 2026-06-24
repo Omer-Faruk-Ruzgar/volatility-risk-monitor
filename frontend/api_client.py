@@ -276,6 +276,12 @@ def run_stress_test(tickers: list, weights: list, start_date: str, end_date: str
         raise TimeoutError("Backend yanıt vermedi (30s). Sunucunun çalıştığından emin olun.")
 
 
+def get_geo_risk() -> dict:
+    """Jeopolitik risk bolgelerinin guncel skorlarini dondurur."""
+    data = _get("/api/geo-risk")
+    return data.get("regions", {})
+
+
 def get_news(ticker: str, limit: int = 10) -> dict:
     """Finnhub üzerinden seçili varlığın haber akışını ve duygu skorlarını döner."""
     return _get(f"/api/news/{ticker}", params={"limit": limit})

@@ -9,7 +9,7 @@ from fastapi import APIRouter, HTTPException
 
 
  # schemas.py'da tanımladığımız modeller
-from backend.schemas import VaRResponse , VolatilityResponse, ReturnsResponse , NewsResponse , PortfolioSummaryResponse , SentimentAlertResponse, StressTestResponse
+from backend.schemas import VaRResponse , VolatilityResponse, ReturnsResponse , NewsResponse , PortfolioSummaryResponse , SentimentAlertResponse, StressTestResponse, GeoRiskResponse
 
 
 from backend import services
@@ -140,5 +140,14 @@ def stress_test_endpoint(
         return services.run_stress_test(tickers, weights, start_date, end_date)
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/geo-risk", response_model=GeoRiskResponse)
+def geo_risk_endpoint():
+    """Jeopolitik risk bolgelerinin guncel gerilim skorlarini dondurur."""
+    try:
+        return {"regions": services.get_geo_risk()}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

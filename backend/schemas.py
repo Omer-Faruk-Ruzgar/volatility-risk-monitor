@@ -7,7 +7,7 @@
 # Bu dosyayı değiştirmeden önce mutlaka Üye 4'e haber ver.
 
 from pydantic import BaseModel
-from typing import List, Optional
+from typing import List, Optional, Dict
 
 # Temel Veri Yapıları
 
@@ -106,4 +106,17 @@ class StressTestResponse(BaseModel):
     var_during_crisis: float             # yüzde — kriz dönemi %5 VaR
     daily_returns: List[dict]            # [{"date", "return", "cumulative"}, ...]
     ticker_contributions: dict           # {ticker: ağırlıklı kümülatif katkı (yüzde)}
-    baseline_cumulative_return: Optional[float] = None  # kriz öncesi aynı süre
+    baseline_cumulative_return: Optional[float] = None  # kriz oncesi ayni sure
+
+
+class GeoRiskRegion(BaseModel):
+    label: str
+    lat: float
+    lon: float
+    score: float           # 0-10 aralik gerilim skoru
+    tickers: List[str]     # bu bolgeden etkilenen varliklar
+    headline_count: int    # skorun hesaplandigi haber sayisi
+
+
+class GeoRiskResponse(BaseModel):
+    regions: Dict[str, GeoRiskRegion]

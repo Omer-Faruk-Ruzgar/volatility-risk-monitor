@@ -1,0 +1,255 @@
+From 5d7d90f1a7705f6623a7baa7d3e03e331653bb0c Mon Sep 17 00:00:00 2001
+From: Omer-Faruk-Ruzgar <ruzgaromerfaruk@outlook.com>
+Date: Wed, 24 Jun 2026 05:50:02 +0300
+Subject: [PATCH] =?UTF-8?q?feat:=20OPEC=20karar=20takip=C3=A7isi=20(volati?=
+ =?UTF-8?q?lite=20grafi=C4=9Finde=20event=20overlay)?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+- OPEC_EVENTS listesi ve _OPEC_COLORS paleti (Commit 2 _CHART_LAYOUT temasına uyumlu)
+- regime_chart() için show_opec parametresi ve add_vline overlay
+- Volatility sayfasında OPEC checkbox ve event tablosu
+---
+ frontend/app.py        | 72 +++++++++++++++++++++++++++++++++---------
+ frontend/components.py | 65 +++++++++++++++++++++++++++-----------
+ 2 files changed, 103 insertions(+), 34 deletions(-)
+
+diff --git a/frontend/app.py b/frontend/app.py
+index 0ed9a6e..8298132 100644
+--- a/frontend/app.py
++++ b/frontend/app.py
+@@ -203,7 +203,7 @@ if page == "Ana Sayfa":
+     st.subheader("Piyasa Risk Özeti")
+     
+     try:
+-        with st.spinner("Piyasa özetleri backend'den çekiliyor, lütfen bekleyin..."):
++        with st.spinner("Piyasa özetleri yükleniyor..."):
+             summaries = get_all_summaries()
+ 
+         if summaries:
+@@ -217,8 +217,14 @@ if page == "Ana Sayfa":
+                         status=data['status']
+                     )
+         else:
+-            st.warning("Henüz görüntülenecek veri bulunamadı. Lütfen backend bağlantısını kontrol edin.")
+-            
++            st.warning("Henüz görüntülenecek veri bulunamadı. Veri pipeline'ının çalıştığından emin olun.")
++
++    except ConnectionError:
++        st.error("Backend'e bağlanılamadı.")
++        st.code("uvicorn backend.main:app --reload", language="bash")
++        st.caption("Yukarıdaki komutu çalıştırıp sayfayı yenileyin.")
++    except TimeoutError:
++        st.error("Backend yanıt vermedi (zaman aşımı). Sunucunun başlatıldığından emin olun.")
+     except Exception as e:
+         st.error(f"Dashboard yüklenirken bir hata oluştu: {e}")
+ 
+@@ -239,10 +245,10 @@ if page == "Ana Sayfa":
+     # Ticker Bazlı Haber Kartları
+     col_sel, col_empty = st.columns([1, 3])
+     with col_sel:
+-        news_ticker = st.selectbox("Hisse Haberlerini İncele:", fetch_assets(), index=0)
++        news_ticker = st.selectbox("Hisse Haberlerini İncele:", fetch_assets(), format_func=ticker_label, index=0)
+     
+     try:
+-        with st.spinner(f"{news_ticker} haberleri analiz ediliyor..."):
++        with st.spinner(f"{ticker_label(news_ticker)} haberleri analiz ediliyor..."):
+             news_data = get_news(news_ticker, limit=5)
+             
+         c_news, c_sent = st.columns([2, 1])
+@@ -274,7 +280,7 @@ if page == "Ana Sayfa":
+         st.error(f"Haberler yüklenirken bir hata oluştu. Backend bağlantısını kontrol edin.")
+ 
+     st.divider()
+-    st.caption("Bu platform sadece akademik amaçlıdır ve yatırım tavsiyesi içermez. Veriler 5 dakikada bir güncellenir.")
++    st.caption("Bu platform sadece akademik amaçlıdır ve yatırım tavsiyesi içermez. Veriler her işlem günü piyasa kapanışından sonra otomatik olarak güncellenir.")
+ 
+ 
+ # --- SAYFA: RETURNS ---
+@@ -321,24 +327,57 @@ elif page == "Volatility":
+ 
+     def render_volatility(ticker):
+         try:
+-            with st.spinner(f"{ticker} için volatilite modelleri hesaplanıyor..."):
++            with st.spinner(f"{ticker_label(ticker)} için volatilite modelleri hesaplanıyor..."):
+                 df = get_volatility(ticker)
+ 
++            # Son değerleri filtrelemeden önce al (her zaman güncel kalır)
++            last_ewma     = df['EWMA'].iloc[-1]
++            last_garch    = df['GARCH'].iloc[-1]
++            last_forecast = df['Forecast'].iloc[-1]
++
++            df = apply_date_filter(df, key=f"vol_{ticker}")
++
+             c1, c2, c3 = st.columns(3)
+-            c1.metric("EWMA (Son)",     f"{df['EWMA'].iloc[-1]:.4f}")
+-            c2.metric("GARCH (Son)",    f"{df['GARCH'].iloc[-1]:.4f}")
+-            c3.metric("Forecast (Son)", f"{df['Forecast'].iloc[-1]:.4f}")
++            c1.metric("EWMA (Son)",     f"{last_ewma:.4f}")
++            c2.metric("GARCH (Son)",    f"{last_garch:.4f}")
++            c3.metric("Forecast (Son)", f"{last_forecast:.4f}")
+ 
+             st.divider()
+             multi_line_chart(
+                 df, x="date",
+                 y_cols=["EWMA", "GARCH", "Forecast"],
+-                title=f"{ticker} — Volatilite Modelleri Karşılaştırması (Yıllıklandırılmış)",
++                title=f"{ticker} - Volatilite Modelleri Karşılaştırması (Yıllıklandırılmış)",
+             )
+ 
+             st.divider()
+-            st.subheader(" Tarihsel Olaylar ve Volatilite Rejimleri")
+-            regime_chart(df, ticker)
++            c_title, c_toggle = st.columns([4, 1])
++            c_title.subheader("Tarihsel Olaylar ve Volatilite Rejimleri")
++            show_opec = c_toggle.checkbox("OPEC Kararları", value=True, key=f"opec_{ticker}")
++            regime_chart(df, ticker, show_opec=show_opec)
++
++            # OPEC detay tablosu
++            if show_opec:
++                with st.expander("OPEC Karar Detayları"):
++                    type_labels = {"cut": "Kesinti", "increase": "Artış", "collapse": "Çöküş/Kriz"}
++                    opec_df = pd.DataFrame([
++                        {
++                            "Tarih":  e["date"],
++                            "Tür":    type_labels.get(e["type"], e["type"]),
++                            "Karar":  e["detail"],
++                        }
++                        for e in OPEC_EVENTS
++                    ])
++                    st.dataframe(
++                        opec_df.style.apply(
++                            lambda col: [
++                                f"color: {_OPEC_COLORS.get({'Kesinti':'cut','Artış':'increase','Çöküş/Kriz':'collapse'}.get(v,'cut'), '#F1EFE8')}"
++                                for v in col
++                            ] if col.name == "Tür" else [""] * len(col),
++                            axis=0,
++                        ),
++                        hide_index=True,
++                        use_container_width=True,
++                    )
+ 
+             st.subheader("Model Özet İstatistikleri")
+             stats = pd.DataFrame({
+@@ -578,12 +617,15 @@ elif page == "Portföy":
+         current_weights = []
+         for t in selected:
+             def_val = st.session_state.get("weight_inputs", {}).get(t, 100.0/len(selected) if len(selected)>0 else 0)
+-            val = st.number_input(f"{t} (%)", 0.0, 100.0, value=float(st.session_state.get(f"num_{t}", def_val)), key=f"num_{t}", step=0.5)
++            val = st.number_input(f"{ticker_label(t)} (%)", 0.0, 100.0, value=float(st.session_state.get(f"num_{t}", def_val)), key=f"num_{t}", step=0.5)
+             current_weights.append(val)
+ 
+         # Canlı Toplam Göstergesi ve Renk Kodları (Issue Geliştirmesi)
+         total_w = round(sum(current_weights), 2)
+-        if abs(total_w - 100) < 0.1:
++        if len(selected) < 2:
++            st.markdown("### 🔴 Korelasyon analizi için en az 2 varlık seçin.")
++            btn_lock = True
++        elif abs(total_w - 100) < 0.1:
+             st.markdown(f"### 🟢 Toplam Ağırlık: `% {total_w:.2f} / 100` (Mükemmel)")
+             btn_lock = False
+         elif total_w > 100:
+diff --git a/frontend/components.py b/frontend/components.py
+index 7a4a005..d0a8de3 100644
+--- a/frontend/components.py
++++ b/frontend/components.py
+@@ -4,16 +4,44 @@ import plotly.graph_objects as go
+ import pandas as pd
+ from datetime import datetime
+ 
++#  OPEC Karar Veritabanı
++# Tarihler grafiklerde dikey çizgi olarak işaretlenir.
++# type: "cut" (amber) | "increase" (teal) | "collapse" (kırmızı)
++OPEC_EVENTS = [
++    {"date": "2016-11-30", "short": "Viyana '16",         "detail": "OPEC Viyana Anlaşması: 8 yıl sonra ilk üretim kesintisi (−1.2M bpd)",       "type": "cut"},
++    {"date": "2018-06-22", "short": "Üretim Artışı '18",  "detail": "OPEC+ İran/Venezuela telafisi için üretim artışı",                            "type": "increase"},
++    {"date": "2019-12-06", "short": "Kesinti Derinleşme", "detail": "OPEC+ toplantısı: kesinti 1.7M bpd'ye derinleştirildi",                       "type": "cut"},
++    {"date": "2020-03-06", "short": "Fiyat Savaşı '20",   "detail": "OPEC+ görüşmeleri çöktü; Suudi Arabistan-Rusya fiyat savaşı başladı",         "type": "collapse"},
++    {"date": "2020-04-09", "short": "Tarihi Anlaşma '20", "detail": "G20 baskısıyla tarihi OPEC+ anlaşması: 9.7M bpd kesinti (COVID yanıtı)",     "type": "cut"},
++    {"date": "2021-07-18", "short": "Üretim Artışı '21",  "detail": "OPEC+ aylık 400k bpd artış anlaşması",                                        "type": "increase"},
++    {"date": "2022-10-05", "short": "−2M bpd '22",        "detail": "OPEC+ 2M bpd üretim kesintisi (ABD ara seçimleri öncesi, yüksek enflasyon)", "type": "cut"},
++    {"date": "2023-04-02", "short": "Suudi Sürprizi '23", "detail": "Suudi Arabistan 500k bpd gönüllü ek kesinti açıkladı (piyasayı şaşırttı)",   "type": "cut"},
++    {"date": "2023-11-30", "short": "Uzatma '23",          "detail": "OPEC+ kesintilerini Q1 2024'e uzattı; Suudi ek kesintisi devam etti",         "type": "cut"},
++    {"date": "2024-06-02", "short": "2025'e Uzatma",       "detail": "OPEC+ toplantısı: kesintiler 2025 sonuna kadar uzatıldı",                    "type": "cut"},
++]
++
++_OPEC_COLORS = {
++    "cut":      "#E8A33D",  # amber: üretim kesintisi (fiyat destekleyici)
++    "increase": "#1D9E75",  # teal: üretim artışı
++    "collapse": "#FF4B4B",  # kırmızı: çöküş / kriz
++}
++
++_CHART_LAYOUT = dict(
++    template="plotly_dark",
++    paper_bgcolor="#0B1929",
++    plot_bgcolor="#0B1929",
++    font=dict(color="#F1EFE8"),
++)
++
+ def line_chart(df: pd.DataFrame, x: str, y: str, title: str):
+     """Genel amaçlı tek serili çizgi grafiği (Örn: Returns)"""
+-    fig = px.line(df, x=x, y=y, title=title)
+-    fig.update_layout(xaxis_title="Tarih", yaxis_title=y)
++    fig = px.line(df, x=x, y=y, title=title, color_discrete_sequence=["#E8A33D"])
++    fig.update_layout(xaxis_title="Tarih", yaxis_title=y, **_CHART_LAYOUT)
+     st.plotly_chart(fig, width='stretch')
+ 
+ 
+ def multi_line_chart(df: pd.DataFrame, x: str, y_cols: list, title: str):
+     """Birden fazla seriyi aynı grafikte gösterir (Örn: EWMA vs GARCH vs Forecast)"""
+-    # Sadece DataFrame'de gerçekten var olan kolonları çiz
+     available = [c for c in y_cols if c in df.columns]
+     if not available:
+         st.warning("Gösterilecek veri bulunamadı.")
+@@ -88,32 +116,31 @@ def summary_table(df: pd.DataFrame, title: str = ""):
+ 
+ def ticker_card(ticker: str, garch_vol: float, delta: float, status: str):
+     """
+-    Koyfin stili dinamik hisse özet kartı.
+-    Görünüm: Ticker Adı | Son Volatilite | Değişim | Durum Badge
++    Bloomberg tarzı dinamik hisse özet kartı - lacivert + amber tema.
+     """
+     if status == "Ekstrem":
+-        color = "#FF4B4B"  # Kırmızı
+-        bg_color = "rgba(255, 75, 75, 0.1)"
+-        badge = " EKSTREM"
++        color    = "#FF4B4B"
++        bg_color = "rgba(255, 75, 75, 0.12)"
++        badge    = "EKSTREM"
+     elif status == "Yüksek":
+-        color = "#FFA500"  # Turuncu
+-        bg_color = "rgba(255, 165, 0, 0.1)"
+-        badge = " YÜKSEK"
++        color    = "#E8A33D"
++        bg_color = "rgba(232, 163, 61, 0.12)"
++        badge    = "YÜKSEK"
+     else:
+-        color = "#28A745"  # Yeşil
+-        bg_color = "rgba(40, 167, 69, 0.1)"
+-        badge = " NORMAL"
++        color    = "#1D9E75"
++        bg_color = "rgba(29, 158, 117, 0.12)"
++        badge    = "NORMAL"
+ 
+-    delta_icon = "▲" if delta > 0 else "▼"
+-    delta_color = "red" if delta > 0 else "green"
++    delta_icon  = "▲" if delta > 0 else "▼"
++    delta_color = "#FF4B4B" if delta > 0 else "#1D9E75"
+ 
+     st.markdown(f"""
+         <div style="
+-            background-color: #f8f9fa;
++            background-color: #142841;
+             border-radius: 10px;
+             padding: 15px;
+-            border-left: 5px solid {color};
+-            box-shadow: 2px 2px 5px rgba(0,0,0,0.05);
++            border-left: 4px solid {color};
++            box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+             margin-bottom: 10px;
+         ">
+             <div style="display: flex; justify-content: space-between; align-items: center;">
+-- 
+2.43.0
+

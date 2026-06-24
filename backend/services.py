@@ -20,7 +20,9 @@ from models.garch import garch_volatility
 from models.forecaster import train_forecaster, predict_vol
 from models.var import compute_var as _compute_var
 from models.var import compute_correlation, compute_portfolio_volatility
-from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer 
+from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer
+from models.sentiment import score_region
+from backend.geo_risk_data import RISK_REGIONS 
 
 #  ÖNBELLEK SİSTEMİ 
 _cache = {}        # Verileri saklayacağımız  sözlük
@@ -473,3 +475,66 @@ def get_sentiment_alert(ticker: str) -> dict:
         "vol_percentile": round(vol_percentile, 2),
         "negative_news_count": negative_news_count
     }
+
+
+def _get_general_news(limit: int = 100) -> list:
+    """
+    Finnhub genel piyasa haberlerini cekmek icin kullanilan ozel fonksiyon.
+    Ticker'a ozgu degil, genel haber akisi: /api/v1/news?category=general
+    Tek API cagriyla tum bolge filtrelerinin kaynagini olusturur.
+    """
+    if not FINNHUB_API_KEY:
+        return []
+    url = (
+        f"https://finnhub.io/api/v1/news"
+        f"?category=general&minId=0&token={FINNHUB_API_KEY}"
+    )
+    try:
+        response = requests.get(url, timeout=10)
+        if response.status_code != 200:
+            print(f"Finnhub genel haber API hatasi: HTTP {response.status_code}")
+            return []
+        return response.json()[:limit]
+    except Exception as e:
+        print(f"Genel haber cekilemedi: {e}")
+        return []
+
+
+def get_geo_risk() -> dict:
+    """
+    Her risk bolgesi icin guncel gerilim skorunu hesaplar.
+    Tek bir Finnhub genel haber cagrisindan keyword filtresiyle bolge bazli
+    VADER skoru uretir. Cache TTL 7200 saniye (2 saat).
+    """
+    cache_key = "geo_risk_all"
+    if cache_key in _cache:
+        ts, data = _cache[cache_key]
+        if time.time() - ts < 7200:
+            return data
+
+    all_news = _get_general_news(limit=100)
+    all_headlines = [
+        item.get("headline", "")
+        for item in all_news
+        if item.get("headline")
+    ]
+
+    results = {}
+    for region_id, region in RISK_REGIONS.items():
+        keywords_lower = [kw.lower() for kw in region["keywords"]]
+        region_headlines = [
+            h for h in all_headlines
+            if any(kw in h.lower() for kw in keywords_lower)
+        ]
+        score = score_region(region_headlines)
+        results[region_id] = {
+            "label":         region["label"],
+            "lat":           region["lat"],
+            "lon":           region["lon"],
+            "score":         score,
+            "tickers":       region["tickers"],
+            "headline_count": len(region_headlines),
+        }
+
+    _cache[cache_key] = (time.time(), results)
+    return results

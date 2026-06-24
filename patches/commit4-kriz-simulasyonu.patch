@@ -1,0 +1,593 @@
+From 6554399360332a1cbd3c01d5f1f57ff6cb57a546 Mon Sep 17 00:00:00 2001
+From: Omer-Faruk-Ruzgar <ruzgaromerfaruk@outlook.com>
+Date: Wed, 24 Jun 2026 05:48:07 +0300
+Subject: [PATCH] =?UTF-8?q?feat:=20kriz=20modu=20sim=C3=BClasyonu=20(stres?=
+ =?UTF-8?q?s=20test=20API=20+=20sayfa)?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+- StressTestResponse modeli ve Optional import (schemas.py)
+- run_stress_test() fonksiyonu (services.py)
+- POST /api/stress-test endpoint (routers.py)
+- run_stress_test() istemci fonksiyonu (api_client.py)
+- Kriz Simülasyonu sayfası + nav entegrasyonu (app.py)
+---
+ backend/routers.py     |  32 ++++-
+ backend/schemas.py     |  20 ++-
+ backend/services.py    | 101 +++++++++++++++
+ frontend/api_client.py |  45 ++++++-
+ frontend/app.py        | 280 ++++++++++++++++++++++++++++++++++++++++-
+ 5 files changed, 469 insertions(+), 9 deletions(-)
+
+diff --git a/backend/routers.py b/backend/routers.py
+index 08a95c7..a939282 100644
+--- a/backend/routers.py
++++ b/backend/routers.py
+@@ -9,7 +9,7 @@ from fastapi import APIRouter, HTTPException
+ 
+ 
+  # schemas.py'da tanımladığımız modeller
+-from backend.schemas import VaRResponse , VolatilityResponse, ReturnsResponse , NewsResponse , PortfolioSummaryResponse , SentimentAlertResponse
++from backend.schemas import VaRResponse , VolatilityResponse, ReturnsResponse , NewsResponse , PortfolioSummaryResponse , SentimentAlertResponse, StressTestResponse
+ 
+ 
+ from backend import services
+@@ -108,9 +108,37 @@ def get_company_news(ticker: str, limit: int = 10):
+ 
+ @router.post("/portfolio", response_model=PortfolioSummaryResponse)
+ def portfolio_endpoint(tickers: List[str] = Body(...), weights: List[float] = Body(...)):
++    if len(tickers) < 2:
++        raise HTTPException(status_code=422, detail="Portföy analizi için en az 2 varlık gereklidir.")
++    if len(tickers) != len(weights):
++        raise HTTPException(status_code=422, detail="Ticker ve ağırlık sayısı eşleşmiyor.")
++    if abs(sum(weights) - 1.0) > 0.01:
++        raise HTTPException(status_code=422, detail=f"Ağırlıkların toplamı 1.0 olmalıdır (şu an: {sum(weights):.4f}).")
+     return services.get_portfolio_summary(tickers, weights)
+ 
+ 
+ @router.get("/news/sentiment-alert/{ticker}", response_model=SentimentAlertResponse)
+ def sentiment_alert(ticker: str):
+-    return services.get_sentiment_alert(ticker)
+\ No newline at end of file
++    return services.get_sentiment_alert(ticker)
++
++
++@router.post("/stress-test", response_model=StressTestResponse)
++def stress_test_endpoint(
++    tickers:    List[str]   = Body(...),
++    weights:    List[float] = Body(...),
++    start_date: str         = Body(...),
++    end_date:   str         = Body(...),
++):
++    """
++    Seçilen portföyün belirtilen tarih aralığındaki tarihsel getiri şoklarını simüle eder.
++    """
++    if len(tickers) < 1:
++        raise HTTPException(status_code=422, detail="En az 1 varlık gereklidir.")
++    if len(tickers) != len(weights):
++        raise HTTPException(status_code=422, detail="Ticker ve ağırlık sayısı eşleşmiyor.")
++    try:
++        return services.run_stress_test(tickers, weights, start_date, end_date)
++    except ValueError as e:
++        raise HTTPException(status_code=422, detail=str(e))
++    except Exception as e:
++        raise HTTPException(status_code=500, detail=str(e))
+\ No newline at end of file
+diff --git a/backend/schemas.py b/backend/schemas.py
+index 44f0d02..5a27d31 100644
+--- a/backend/schemas.py
++++ b/backend/schemas.py
+@@ -7,7 +7,7 @@
+ # Bu dosyayı değiştirmeden önce mutlaka Üye 4'e haber ver.
+ 
+ from pydantic import BaseModel
+-from typing import List
++from typing import List, Optional
+ 
+ # Temel Veri Yapıları
+ 
+@@ -90,4 +90,20 @@ class SentimentAlertResponse(BaseModel):
+     sentiment_score: float      # Aggregate sentiment
+     current_vol: float          # Son GARCH değeri
+     vol_percentile: float       # Tarihi yüzdelik: şu an kaçıncı persentilde
+-    negative_news_count: int    # Son 24 saatteki negatif haber sayısı
+\ No newline at end of file
++    negative_news_count: int    # Son 24 saatteki negatif haber sayısı
++
++
++class StressTestResponse(BaseModel):
++    tickers: List[str]
++    weights: List[float]
++    start_date: str
++    end_date: str
++    n_trading_days: int
++    portfolio_cumulative_return: float   # yüzde (örn: -28.4)
++    max_drawdown: float                  # yüzde (örn: -34.1)
++    worst_day: float                     # yüzde (örn: -11.2)
++    best_day: float                      # yüzde (örn: +9.4)
++    var_during_crisis: float             # yüzde — kriz dönemi %5 VaR
++    daily_returns: List[dict]            # [{"date", "return", "cumulative"}, ...]
++    ticker_contributions: dict           # {ticker: ağırlıklı kümülatif katkı (yüzde)}
++    baseline_cumulative_return: Optional[float] = None  # kriz öncesi aynı süre
+\ No newline at end of file
+diff --git a/backend/services.py b/backend/services.py
+index 53b5c74..35a9ed1 100644
+--- a/backend/services.py
++++ b/backend/services.py
+@@ -319,6 +319,107 @@ def get_portfolio_summary(tickers: list, weights: list) -> dict:
+         "high_corr_pairs":        high_corr_pairs,
+     }
+ 
++def run_stress_test(tickers: list, weights: list, start_date: str, end_date: str) -> dict:
++    """
++    Seçilen tarih aralığındaki tarihsel getiri şoklarını portföy ağırlıklarına uygular.
++    Kümülatif kayıp, max drawdown, en kötü gün ve varlık katkılarını döndürür.
++    """
++    # Veri olan ticker'ları yükle (bazıları ilgili dönemde olmayabilir)
++    returns_dict = {}
++    valid_tickers = []
++    valid_weights = []
++    for ticker, weight in zip(tickers, weights):
++        try:
++            series = _load_returns(ticker)
++            returns_dict[ticker] = series
++            valid_tickers.append(ticker)
++            valid_weights.append(weight)
++        except Exception:
++            continue
++
++    if not valid_tickers:
++        raise ValueError("Seçili varlıklar için veritabanında veri bulunamadı.")
++
++    returns_df = pd.DataFrame(returns_dict).dropna()
++
++    start = pd.to_datetime(start_date)
++    end   = pd.to_datetime(end_date)
++    crisis_df = returns_df[(returns_df.index >= start) & (returns_df.index <= end)]
++
++    if crisis_df.empty:
++        raise ValueError(
++            f"Seçilen tarih aralığında ({start_date} → {end_date}) bu varlıklar için "
++            "veri bulunamadı. Veritabanındaki tarih aralığını kontrol edin."
++        )
++
++    # Ağırlıkları normalleştir (dışarıda kalan ticker'lar için)
++    w = np.array(valid_weights, dtype=float)
++    w = w / w.sum()
++
++    # Günlük portföy log getirileri
++    port_returns = (crisis_df[valid_tickers] * w).sum(axis=1).values
++
++    # Kümülatif değer serisi (1'den başlar)
++    cum_vals = np.exp(np.cumsum(port_returns))
++    cumulative_return = float(cum_vals[-1] - 1)
++
++    # Maksimum drawdown
++    rolling_max = np.maximum.accumulate(cum_vals)
++    drawdowns = (cum_vals - rolling_max) / rolling_max
++    max_drawdown = float(drawdowns.min())
++
++    worst_day = float(port_returns.min())
++    best_day  = float(port_returns.max())
++
++    # Kriz dönemi %5 VaR (günlük)
++    var_during_crisis = float(np.percentile(port_returns, 5))
++
++    # Günlük veri (grafik için)
++    daily_returns = [
++        {
++            "date":       d.strftime("%Y-%m-%d"),
++            "return":     round(float(r) * 100, 4),
++            "cumulative": round(float(cv - 1) * 100, 4),
++        }
++        for d, r, cv in zip(crisis_df.index, port_returns, cum_vals)
++    ]
++
++    # Varlık katkıları (ağırlıklı kümülatif getiri, yüzde)
++    ticker_contributions = {}
++    for i, ticker in enumerate(valid_tickers):
++        ticker_cum = float(np.exp(np.sum(crisis_df[ticker].values)) - 1)
++        ticker_contributions[ticker] = round(ticker_cum * w[i] * 100, 2)
++
++    # Baz dönem karşılaştırması: kriz öncesi aynı uzunlukta pencere
++    n_days = len(crisis_df)
++    baseline_end_dt   = start - pd.Timedelta(days=1)
++    baseline_start_dt = baseline_end_dt - pd.Timedelta(days=int(n_days * 1.7))
++    baseline_df = returns_df[
++        (returns_df.index >= baseline_start_dt) & (returns_df.index <= baseline_end_dt)
++    ].iloc[-n_days:]
++
++    baseline_cumulative = None
++    if len(baseline_df) >= max(1, n_days // 2):
++        base_returns = (baseline_df[valid_tickers] * w).sum(axis=1).values
++        baseline_cumulative = round(float(np.exp(np.sum(base_returns)) - 1) * 100, 2)
++
++    return {
++        "tickers":                    valid_tickers,
++        "weights":                    w.tolist(),
++        "start_date":                 start_date,
++        "end_date":                   end_date,
++        "n_trading_days":             n_days,
++        "portfolio_cumulative_return": round(cumulative_return * 100, 2),
++        "max_drawdown":               round(max_drawdown * 100, 2),
++        "worst_day":                  round(worst_day * 100, 2),
++        "best_day":                   round(best_day * 100, 2),
++        "var_during_crisis":          round(var_during_crisis * 100, 2),
++        "daily_returns":              daily_returns,
++        "ticker_contributions":       ticker_contributions,
++        "baseline_cumulative_return": baseline_cumulative,
++    }
++
++
+ def get_sentiment_alert(ticker: str) -> dict:
+     #  Haber verilerini al Son 15 haber
+     news_data = get_news(ticker, limit=15)
+diff --git a/frontend/api_client.py b/frontend/api_client.py
+index c401488..d4be13f 100644
+--- a/frontend/api_client.py
++++ b/frontend/api_client.py
+@@ -144,10 +144,23 @@ def get_portfolio_summary(tickers: list, weights: list) -> dict:
+     
+     try:
+         response = requests.post(url, json=payload, timeout=15)
+-        response.raise_for_status() 
++        response.raise_for_status()
+         return response.json()
++    except requests.exceptions.HTTPError as e:
++        try:
++            detail = e.response.json().get("detail", str(e))
++        except Exception:
++            detail = e.response.text[:300] if e.response.text else str(e)
++        raise ValueError(f"Portföy analizi hatası: {detail}")
++    except requests.exceptions.ConnectionError:
++        raise ConnectionError(
++            "Backend'e bağlanılamadı. "
++            "`uvicorn backend.main:app --reload` komutunu çalıştırdığınızdan emin olun."
++        )
++    except requests.exceptions.Timeout:
++        raise TimeoutError("Backend yanıt vermedi (15s). Sunucunun çalıştığından emin olun.")
+     except requests.exceptions.RequestException as e:
+-        raise ValueError(f"Backend'den gerçek portföy verileri alınamadı: {e}")
++        raise ValueError(f"Portföy analizi hatası: {e}")
+ 
+ 
+ # 8. get_portfolio_analysis(tickers, weights) - Geriye dönük tam uyumluluk köprüsü
+@@ -235,6 +248,34 @@ def get_data_status() -> dict:
+ 
+ # ---  ENTEGRE EDİLEN HABER & SENTIMENT ENDPOINT'LERİ ---
+ 
++def run_stress_test(tickers: list, weights: list, start_date: str, end_date: str) -> dict:
++    """Seçilen portföyün verilen tarih aralığındaki kriz simülasyonunu çalıştırır."""
++    url = f"{BACKEND_URL}/api/stress-test"
++    payload = {
++        "tickers":    tickers,
++        "weights":    weights,
++        "start_date": start_date,
++        "end_date":   end_date,
++    }
++    try:
++        response = requests.post(url, json=payload, timeout=30)
++        response.raise_for_status()
++        return response.json()
++    except requests.exceptions.HTTPError as e:
++        try:
++            detail = e.response.json().get("detail", str(e))
++        except Exception:
++            detail = e.response.text[:300] if e.response.text else str(e)
++        raise ValueError(f"Kriz simülasyonu hatası: {detail}")
++    except requests.exceptions.ConnectionError:
++        raise ConnectionError(
++            "Backend'e bağlanılamadı. "
++            "`uvicorn backend.main:app --reload` komutunu çalıştırdığınızdan emin olun."
++        )
++    except requests.exceptions.Timeout:
++        raise TimeoutError("Backend yanıt vermedi (30s). Sunucunun çalıştığından emin olun.")
++
++
+ def get_news(ticker: str, limit: int = 10) -> dict:
+     """Finnhub üzerinden seçili varlığın haber akışını ve duygu skorlarını döner."""
+     return _get(f"/api/news/{ticker}", params={"limit": limit})
+diff --git a/frontend/app.py b/frontend/app.py
+index 5fcf2c8..0ed9a6e 100644
+--- a/frontend/app.py
++++ b/frontend/app.py
+@@ -656,16 +656,290 @@ elif page == "Portföy":
+                 st.divider()
+                 st.caption(" **Kritik Not:** Bu analiz tarihsel verilerle hesaplanmıştır. Korelasyonlar kriz anlarında değişkenlik gösterebilir.")
+ 
++                # --- Excel Export ---
++                alloc_df = pd.DataFrame([
++                    {"Varlık": ticker_label(t), "Ağırlık (%)": w * 100}
++                    for t, w in zip(selected, final_w_list)
++                ])
++                metrics_df = pd.DataFrame([{
++                    "Portföy VaR (95%)": f"{port_var:.4f}",
++                    "Expected Shortfall": f"{port_es:.4f}",
++                    "Çeşitlendirme Etkisi": f"{div_eff:.4f}",
++                }])
++                corr_export = corr_matrix.reset_index().rename(columns={"index": "Varlık"})
++                excel = to_excel_bytes({
++                    "Özet": metrics_df,
++                    "Dağılım": alloc_df,
++                    "Korelasyon Matrisi": corr_export,
++                })
++                st.download_button("Excel İndir", data=excel, file_name="portfoy_analizi.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
++
+         except Exception as e:
+             st.error(f"Portföy analizi sırasında bir hata oluştu: {e}")
+ 
+     # --- 🤖 5. INTERAKTIF CHATBOT (SAYFA ALTINDA HER AN AKTİF) ---
+     st.divider()
+-    
++
+     # Gerçek zamanlı ağırlık verilerinin bota aktarılması
+     bot_summary = st.session_state.get("last_portfolio_data") or {
+         "allocation": {t: w for t, w in zip(selected, current_weights)}
+     }
+-    
++
+     # Arkadaşının chatbot bileşeni çağrılıyor
+-    render_portfolio_chat(bot_summary)
+\ No newline at end of file
++    render_portfolio_chat(bot_summary)
++
++
++# --- SAYFA: KRİZ SİMÜLASYONU ---
++elif page == "Kriz Simülasyonu":
++    st.title("Kriz Modu Simülasyonu")
++    st.markdown(
++        "Portföyünüzün **2020 COVID çöküşü**, **Ukrayna savaşı** veya "
++        "**Fed faiz şoku** gibi tarihsel kriz dönemlerinde nasıl performans "
++        "göstereceğini simüle edin."
++    )
++
++    CRISIS_SCENARIOS = {
++        "COVID-19 Mart 2020":    ("2020-02-20", "2020-03-23"),
++        "Ukrayna Savaşı 2022":   ("2022-02-24", "2022-04-01"),
++        "Fed Faiz Şoku 2022":    ("2022-01-01", "2022-10-31"),
++        "Petrol Çöküşü 2020":    ("2020-03-01", "2020-04-30"),
++    }
++    CRISIS_DESC = {
++        "COVID-19 Mart 2020":    "Pandemi ilanıyla küresel piyasalar 33 günde %34 geriledi.",
++        "Ukrayna Savaşı 2022":   "Rusya işgaliyle enerji ve emtia piyasaları sert dalgalandı.",
++        "Fed Faiz Şoku 2022":    "40 yılın en agresif faiz artış döngüsü; tahvil ve büyüme varlıkları ağır kayıp yaşadı.",
++        "Petrol Çöküşü 2020":    "WTI vadeli işlemleri negatife döndü; enerji sektörü için tarihi kriz.",
++        "Özel Tarih Aralığı":   "Kendi tarih aralığınızı girin.",
++    }
++
++    col_left, col_right = st.columns([1, 2], gap="large")
++
++    #Sol panel: konfigürasyon 
++        
++    with col_left:
++        st.subheader("1. Portföy")
++
++        all_assets = fetch_assets()
++        prev_selection = st.session_state.get("selected_assets", all_assets[:3])
++        safe_defaults  = [a for a in prev_selection if a in all_assets] or all_assets[:3]
++
++        crisis_tickers = st.multiselect(
++            "Varlıklar:",
++            all_assets,
++            default=safe_defaults,
++            format_func=ticker_label,
++            key="crisis_tickers",
++        )
++
++        if not crisis_tickers:
++            st.info("En az 1 varlık seçin.")
++            st.stop()
++
++        equal_w = round(100 / len(crisis_tickers), 2)
++        crisis_weights = []
++        for t in crisis_tickers:
++            w_val = st.number_input(
++                f"{ticker_label(t)} (%)",
++                min_value=0.0,
++                max_value=100.0,
++                value=float(st.session_state.get(f"cw_{t}", equal_w)),
++                step=1.0,
++                key=f"cw_{t}",
++            )
++            crisis_weights.append(w_val)
++
++        total_cw = round(sum(crisis_weights), 2)
++        if abs(total_cw - 100) < 0.1:
++            st.success(f"Toplam: %{total_cw:.0f} ✓")
++        else:
++            st.warning(f"Toplam: %{total_cw:.1f} / 100 - tam 100 olmalı")
++
++        st.divider()
++        st.subheader("2. Senaryo")
++
++        scenario_options = list(CRISIS_SCENARIOS.keys()) + ["Özel Tarih Aralığı"]
++        selected_scenario = st.selectbox("Kriz Dönemi:", scenario_options, key="crisis_scenario")
++        st.caption(CRISIS_DESC.get(selected_scenario, ""))
++
++        if selected_scenario == "Özel Tarih Aralığı":
++            scenario_start = str(st.date_input("Başlangıç:", value=pd.Timestamp("2020-02-20"), key="crisis_start"))
++            scenario_end   = str(st.date_input("Bitiş:",     value=pd.Timestamp("2020-03-23"), key="crisis_end"))
++        else:
++            scenario_start, scenario_end = CRISIS_SCENARIOS[selected_scenario]
++            st.caption(f"**{scenario_start}** → **{scenario_end}**")
++
++        st.divider()
++        weights_ok = abs(total_cw - 100) < 0.1
++        run_btn = st.button(
++            "Simülasyonu Çalıştır",
++            type="primary",
++            use_container_width=True,
++            disabled=not weights_ok,
++            key="crisis_run",
++        )
++
++    #  Sağ panel: sonuçlar  
++    with col_right:
++        if not run_btn:
++            st.markdown("""
++                <div style="display:flex;align-items:center;justify-content:center;
++                            height:320px;border:2px dashed #142841;border-radius:12px;
++                            color:#8A9BB5;font-family:'Inter',sans-serif;">
++                    <div style="text-align:center">
++                        <div style="font-size:52px;margin-bottom:12px;">📉</div>
++                        <div>Portföyü yapılandırın ve simülasyonu başlatın</div>
++                    </div>
++                </div>
++            """, unsafe_allow_html=True)
++        else:
++            try:
++                final_weights = [w / 100 for w in crisis_weights]
++                with st.spinner(f"'{selected_scenario}' senaryosu simüle ediliyor..."):
++                    result = run_stress_test(crisis_tickers, final_weights, scenario_start, scenario_end)
++
++                cum_ret  = result["portfolio_cumulative_return"]
++                max_dd   = result["max_drawdown"]
++                worst    = result["worst_day"]
++                best     = result["best_day"]
++                n_days   = result["n_trading_days"]
++                baseline = result.get("baseline_cumulative_return")
++                contrib  = result["ticker_contributions"]
++
++                # Metrik satırı
++                m1, m2, m3, m4 = st.columns(4)
++                ret_color = "red" if cum_ret < 0 else "green"
++                m1.metric("Kümülatif Getiri",  f"%{cum_ret:.2f}")
++                m2.metric("Maks. Drawdown",    f"%{max_dd:.2f}")
++                m3.metric("En Kötü Gün",       f"%{worst:.2f}")
++                m4.metric("Simülasyon Süresi", f"{n_days} gün")
++
++                # Baz dönem karşılaştırması
++                if baseline is not None:
++                    diff = cum_ret - baseline
++                    if cum_ret < 0 and baseline >= 0:
++                        st.error(
++                            f"Normal dönemde portföy **%{baseline:.2f}** getiri sağlarken, "
++                            f"kriz döneminde **%{abs(cum_ret):.2f}** kaybetti."
++                        )
++                    else:
++                        arrow = "▼" if diff < 0 else "▲"
++                        st.info(
++                            f"Normal dönem: **%{baseline:.2f}** | "
++                            f"Kriz dönemi: **%{cum_ret:.2f}** | "
++                            f"Fark: {arrow} **%{abs(diff):.2f}**"
++                        )
++
++                st.divider()
++
++                # Kümülatif performans grafiği
++                daily_df = pd.DataFrame(result["daily_returns"])
++                daily_df["date"] = pd.to_datetime(daily_df["date"])
++
++                line_col = "#FF4B4B" if cum_ret < 0 else "#1D9E75"
++                fill_col = "rgba(255,75,75,0.08)" if cum_ret < 0 else "rgba(29,158,117,0.08)"
++
++                fig_cum = go.Figure()
++                fig_cum.add_trace(go.Scatter(
++                    x=daily_df["date"],
++                    y=daily_df["cumulative"],
++                    mode="lines",
++                    name="Kümülatif Getiri (%)",
++                    line=dict(color=line_col, width=2),
++                    fill="tozeroy",
++                    fillcolor=fill_col,
++                    hovertemplate="%{x|%d %b %Y}<br>%{y:.2f}%<extra></extra>",
++                ))
++                fig_cum.add_hline(y=0, line_dash="dash", line_color="#8A9BB5", opacity=0.4)
++                fig_cum.update_layout(
++                    title=f"{selected_scenario} - Kümülatif Portföy Performansı",
++                    xaxis_title="Tarih",
++                    yaxis_title="Kümülatif Getiri (%)",
++                    hovermode="x unified",
++                    template="plotly_dark",
++                    paper_bgcolor="#0B1929",
++                    plot_bgcolor="#0B1929",
++                    font=dict(color="#F1EFE8"),
++                )
++                st.plotly_chart(fig_cum, use_container_width=True)
++
++                # Varlık katkıları yatay bar
++                contrib_sorted = sorted(contrib.items(), key=lambda x: x[1])
++                bar_labels  = [ticker_label(t) for t, _ in contrib_sorted]
++                bar_values  = [v for _, v in contrib_sorted]
++                bar_colors  = ["#FF4B4B" if v < 0 else "#1D9E75" for v in bar_values]
++
++                fig_bar = go.Figure(go.Bar(
++                    x=bar_values,
++                    y=bar_labels,
++                    orientation="h",
++                    marker_color=bar_colors,
++                    text=[f"%{v:.2f}" for v in bar_values],
++                    textposition="outside",
++                    hovertemplate="%{y}: %{x:.2f}%<extra></extra>",
++                ))
++                fig_bar.update_layout(
++                    title="Varlık Katkıları (Ağırlıklı Kümülatif Getiri)",
++                    xaxis_title="Katkı (%)",
++                    template="plotly_dark",
++                    paper_bgcolor="#0B1929",
++                    plot_bgcolor="#0B1929",
++                    font=dict(color="#F1EFE8"),
++                    height=max(200, len(contrib) * 45 + 100),
++                    margin=dict(l=10, r=60),
++                )
++                st.plotly_chart(fig_bar, use_container_width=True)
++
++                # Risk yorumu
++                worst_t = min(contrib, key=contrib.get)
++                best_t  = max(contrib, key=contrib.get)
++                if contrib[worst_t] < -0.01:
++                    st.error(f"**En yüksek kayıp:** {ticker_label(worst_t)} → %{contrib[worst_t]:.2f}")
++                if contrib[best_t] > 0.01:
++                    st.success(f"**En iyi koruma:** {ticker_label(best_t)} → +%{contrib[best_t]:.2f}")
++                elif best_t != worst_t:
++                    st.info(f"**En az zarar eden:** {ticker_label(best_t)} → %{contrib[best_t]:.2f}")
++
++                # Excel export
++                st.divider()
++                export_daily = daily_df.rename(columns={
++                    "date":       "Tarih",
++                    "return":     "Günlük Getiri (%)",
++                    "cumulative": "Kümülatif Getiri (%)",
++                })
++                contrib_export_rows = []
++                for t, v in contrib_sorted:
++                    w_idx = crisis_tickers.index(t) if t in crisis_tickers else -1
++                    w_pct = crisis_weights[w_idx] if w_idx >= 0 else 0
++                    contrib_export_rows.append({"Varlık": ticker_label(t), "Ağırlık (%)": round(w_pct, 2), "Katkı (%)": v})
++                metrics_row = pd.DataFrame([{
++                    "Senaryo":              selected_scenario,
++                    "Başlangıç":           scenario_start,
++                    "Bitiş":               scenario_end,
++                    "Kümülatif Getiri (%)": cum_ret,
++                    "Maks. Drawdown (%)":  max_dd,
++                    "En Kötü Gün (%)":     worst,
++                    "En İyi Gün (%)":      best,
++                    "İşlem Günü":          n_days,
++                    "Baz Dönem (%)":       baseline,
++                }])
++                excel = to_excel_bytes({
++                    "Özet":            metrics_row,
++                    "Günlük Getiriler": export_daily,
++                    "Varlık Katkıları": pd.DataFrame(contrib_export_rows),
++                })
++                st.download_button(
++                    "Excel İndir",
++                    data=excel,
++                    file_name=f"kriz_{selected_scenario[:22].replace(' ', '_')}.xlsx",
++                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
++                )
++
++            except ValueError as e:
++                st.error(str(e))
++            except ConnectionError as e:
++                st.error(str(e))
++                st.code("uvicorn backend.main:app --reload", language="bash")
++            except TimeoutError as e:
++                st.error(str(e))
++            except Exception as e:
++                st.error(f"Simülasyon sırasında bir hata oluştu: {e}")
+\ No newline at end of file
+-- 
+2.43.0
+
