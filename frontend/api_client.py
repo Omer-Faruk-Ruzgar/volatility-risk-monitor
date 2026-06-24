@@ -144,10 +144,23 @@ def get_portfolio_summary(tickers: list, weights: list) -> dict:
     
     try:
         response = requests.post(url, json=payload, timeout=15)
-        response.raise_for_status() 
+        response.raise_for_status()
         return response.json()
+    except requests.exceptions.HTTPError as e:
+        try:
+            detail = e.response.json().get("detail", str(e))
+        except Exception:
+            detail = e.response.text[:300] if e.response.text else str(e)
+        raise ValueError(f"Portföy analizi hatası: {detail}")
+    except requests.exceptions.ConnectionError:
+        raise ConnectionError(
+            "Backend'e bağlanılamadı. "
+            "`uvicorn backend.main:app --reload` komutunu çalıştırdığınızdan emin olun."
+        )
+    except requests.exceptions.Timeout:
+        raise TimeoutError("Backend yanıt vermedi (15s). Sunucunun çalıştığından emin olun.")
     except requests.exceptions.RequestException as e:
-        raise ValueError(f"Backend'den gerçek portföy verileri alınamadı: {e}")
+        raise ValueError(f"Portföy analizi hatası: {e}")
 
 
 # 8. get_portfolio_analysis(tickers, weights) - Geriye dönük tam uyumluluk köprüsü
@@ -234,6 +247,34 @@ def get_data_status() -> dict:
 
 
 # ---  ENTEGRE EDİLEN HABER & SENTIMENT ENDPOINT'LERİ ---
+
+def run_stress_test(tickers: list, weights: list, start_date: str, end_date: str) -> dict:
+    """Seçilen portföyün verilen tarih aralığındaki kriz simülasyonunu çalıştırır."""
+    url = f"{BACKEND_URL}/api/stress-test"
+    payload = {
+        "tickers":    tickers,
+        "weights":    weights,
+        "start_date": start_date,
+        "end_date":   end_date,
+    }
+    try:
+        response = requests.post(url, json=payload, timeout=30)
+        response.raise_for_status()
+        return response.json()
+    except requests.exceptions.HTTPError as e:
+        try:
+            detail = e.response.json().get("detail", str(e))
+        except Exception:
+            detail = e.response.text[:300] if e.response.text else str(e)
+        raise ValueError(f"Kriz simülasyonu hatası: {detail}")
+    except requests.exceptions.ConnectionError:
+        raise ConnectionError(
+            "Backend'e bağlanılamadı. "
+            "`uvicorn backend.main:app --reload` komutunu çalıştırdığınızdan emin olun."
+        )
+    except requests.exceptions.Timeout:
+        raise TimeoutError("Backend yanıt vermedi (30s). Sunucunun çalıştığından emin olun.")
+
 
 def get_news(ticker: str, limit: int = 10) -> dict:
     """Finnhub üzerinden seçili varlığın haber akışını ve duygu skorlarını döner."""

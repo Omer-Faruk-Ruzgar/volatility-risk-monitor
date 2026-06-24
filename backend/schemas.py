@@ -7,7 +7,7 @@
 # Bu dosyayı değiştirmeden önce mutlaka Üye 4'e haber ver.
 
 from pydantic import BaseModel
-from typing import List
+from typing import List, Optional
 
 # Temel Veri Yapıları
 
@@ -91,3 +91,19 @@ class SentimentAlertResponse(BaseModel):
     current_vol: float          # Son GARCH değeri
     vol_percentile: float       # Tarihi yüzdelik: şu an kaçıncı persentilde
     negative_news_count: int    # Son 24 saatteki negatif haber sayısı
+
+
+class StressTestResponse(BaseModel):
+    tickers: List[str]
+    weights: List[float]
+    start_date: str
+    end_date: str
+    n_trading_days: int
+    portfolio_cumulative_return: float   # yüzde (örn: -28.4)
+    max_drawdown: float                  # yüzde (örn: -34.1)
+    worst_day: float                     # yüzde (örn: -11.2)
+    best_day: float                      # yüzde (örn: +9.4)
+    var_during_crisis: float             # yüzde — kriz dönemi %5 VaR
+    daily_returns: List[dict]            # [{"date", "return", "cumulative"}, ...]
+    ticker_contributions: dict           # {ticker: ağırlıklı kümülatif katkı (yüzde)}
+    baseline_cumulative_return: Optional[float] = None  # kriz öncesi aynı süre

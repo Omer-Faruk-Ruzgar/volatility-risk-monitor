@@ -9,7 +9,7 @@ from fastapi import APIRouter, HTTPException
 
 
  # schemas.py'da tanımladığımız modeller
-from backend.schemas import VaRResponse , VolatilityResponse, ReturnsResponse , NewsResponse , PortfolioSummaryResponse , SentimentAlertResponse
+from backend.schemas import VaRResponse , VolatilityResponse, ReturnsResponse , NewsResponse , PortfolioSummaryResponse , SentimentAlertResponse, StressTestResponse
 
 
 from backend import services
@@ -108,9 +108,37 @@ def get_company_news(ticker: str, limit: int = 10):
 
 @router.post("/portfolio", response_model=PortfolioSummaryResponse)
 def portfolio_endpoint(tickers: List[str] = Body(...), weights: List[float] = Body(...)):
+    if len(tickers) < 2:
+        raise HTTPException(status_code=422, detail="Portföy analizi için en az 2 varlık gereklidir.")
+    if len(tickers) != len(weights):
+        raise HTTPException(status_code=422, detail="Ticker ve ağırlık sayısı eşleşmiyor.")
+    if abs(sum(weights) - 1.0) > 0.01:
+        raise HTTPException(status_code=422, detail=f"Ağırlıkların toplamı 1.0 olmalıdır (şu an: {sum(weights):.4f}).")
     return services.get_portfolio_summary(tickers, weights)
 
 
 @router.get("/news/sentiment-alert/{ticker}", response_model=SentimentAlertResponse)
 def sentiment_alert(ticker: str):
     return services.get_sentiment_alert(ticker)
+
+
+@router.post("/stress-test", response_model=StressTestResponse)
+def stress_test_endpoint(
+    tickers:    List[str]   = Body(...),
+    weights:    List[float] = Body(...),
+    start_date: str         = Body(...),
+    end_date:   str         = Body(...),
+):
+    """
+    Seçilen portföyün belirtilen tarih aralığındaki tarihsel getiri şoklarını simüle eder.
+    """
+    if len(tickers) < 1:
+        raise HTTPException(status_code=422, detail="En az 1 varlık gereklidir.")
+    if len(tickers) != len(weights):
+        raise HTTPException(status_code=422, detail="Ticker ve ağırlık sayısı eşleşmiyor.")
+    try:
+        return services.run_stress_test(tickers, weights, start_date, end_date)
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))

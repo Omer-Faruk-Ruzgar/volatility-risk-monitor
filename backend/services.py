@@ -319,6 +319,107 @@ def get_portfolio_summary(tickers: list, weights: list) -> dict:
         "high_corr_pairs":        high_corr_pairs,
     }
 
+def run_stress_test(tickers: list, weights: list, start_date: str, end_date: str) -> dict:
+    """
+    Seçilen tarih aralığındaki tarihsel getiri şoklarını portföy ağırlıklarına uygular.
+    Kümülatif kayıp, max drawdown, en kötü gün ve varlık katkılarını döndürür.
+    """
+    # Veri olan ticker'ları yükle (bazıları ilgili dönemde olmayabilir)
+    returns_dict = {}
+    valid_tickers = []
+    valid_weights = []
+    for ticker, weight in zip(tickers, weights):
+        try:
+            series = _load_returns(ticker)
+            returns_dict[ticker] = series
+            valid_tickers.append(ticker)
+            valid_weights.append(weight)
+        except Exception:
+            continue
+
+    if not valid_tickers:
+        raise ValueError("Seçili varlıklar için veritabanında veri bulunamadı.")
+
+    returns_df = pd.DataFrame(returns_dict).dropna()
+
+    start = pd.to_datetime(start_date)
+    end   = pd.to_datetime(end_date)
+    crisis_df = returns_df[(returns_df.index >= start) & (returns_df.index <= end)]
+
+    if crisis_df.empty:
+        raise ValueError(
+            f"Seçilen tarih aralığında ({start_date} → {end_date}) bu varlıklar için "
+            "veri bulunamadı. Veritabanındaki tarih aralığını kontrol edin."
+        )
+
+    # Ağırlıkları normalleştir (dışarıda kalan ticker'lar için)
+    w = np.array(valid_weights, dtype=float)
+    w = w / w.sum()
+
+    # Günlük portföy log getirileri
+    port_returns = (crisis_df[valid_tickers] * w).sum(axis=1).values
+
+    # Kümülatif değer serisi (1'den başlar)
+    cum_vals = np.exp(np.cumsum(port_returns))
+    cumulative_return = float(cum_vals[-1] - 1)
+
+    # Maksimum drawdown
+    rolling_max = np.maximum.accumulate(cum_vals)
+    drawdowns = (cum_vals - rolling_max) / rolling_max
+    max_drawdown = float(drawdowns.min())
+
+    worst_day = float(port_returns.min())
+    best_day  = float(port_returns.max())
+
+    # Kriz dönemi %5 VaR (günlük)
+    var_during_crisis = float(np.percentile(port_returns, 5))
+
+    # Günlük veri (grafik için)
+    daily_returns = [
+        {
+            "date":       d.strftime("%Y-%m-%d"),
+            "return":     round(float(r) * 100, 4),
+            "cumulative": round(float(cv - 1) * 100, 4),
+        }
+        for d, r, cv in zip(crisis_df.index, port_returns, cum_vals)
+    ]
+
+    # Varlık katkıları (ağırlıklı kümülatif getiri, yüzde)
+    ticker_contributions = {}
+    for i, ticker in enumerate(valid_tickers):
+        ticker_cum = float(np.exp(np.sum(crisis_df[ticker].values)) - 1)
+        ticker_contributions[ticker] = round(ticker_cum * w[i] * 100, 2)
+
+    # Baz dönem karşılaştırması: kriz öncesi aynı uzunlukta pencere
+    n_days = len(crisis_df)
+    baseline_end_dt   = start - pd.Timedelta(days=1)
+    baseline_start_dt = baseline_end_dt - pd.Timedelta(days=int(n_days * 1.7))
+    baseline_df = returns_df[
+        (returns_df.index >= baseline_start_dt) & (returns_df.index <= baseline_end_dt)
+    ].iloc[-n_days:]
+
+    baseline_cumulative = None
+    if len(baseline_df) >= max(1, n_days // 2):
+        base_returns = (baseline_df[valid_tickers] * w).sum(axis=1).values
+        baseline_cumulative = round(float(np.exp(np.sum(base_returns)) - 1) * 100, 2)
+
+    return {
+        "tickers":                    valid_tickers,
+        "weights":                    w.tolist(),
+        "start_date":                 start_date,
+        "end_date":                   end_date,
+        "n_trading_days":             n_days,
+        "portfolio_cumulative_return": round(cumulative_return * 100, 2),
+        "max_drawdown":               round(max_drawdown * 100, 2),
+        "worst_day":                  round(worst_day * 100, 2),
+        "best_day":                   round(best_day * 100, 2),
+        "var_during_crisis":          round(var_during_crisis * 100, 2),
+        "daily_returns":              daily_returns,
+        "ticker_contributions":       ticker_contributions,
+        "baseline_cumulative_return": baseline_cumulative,
+    }
+
+
 def get_sentiment_alert(ticker: str) -> dict:
     #  Haber verilerini al Son 15 haber
     news_data = get_news(ticker, limit=15)
