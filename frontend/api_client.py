@@ -228,6 +228,11 @@ def get_correlation_matrix(tickers):
     return corr_matrix
 
 
+def get_data_status() -> dict:
+    """Backend'deki veri tabanının son güncelleme zamanını ve planlanmış sonraki güncellemeyi döner."""
+    return _get("/api/data-status")
+
+
 # ---  ENTEGRE EDİLEN HABER & SENTIMENT ENDPOINT'LERİ ---
 
 def get_news(ticker: str, limit: int = 10) -> dict:
