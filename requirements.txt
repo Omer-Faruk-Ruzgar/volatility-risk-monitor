@@ -32,6 +32,7 @@ fonttools==4.62.1
 fqdn==1.5.1
 frozendict==2.4.7
 gitdb==4.0.12
+google-generativeai==0.8.6
 GitPython==3.1.46
 greenlet==3.3.2
 h11==0.16.0
@@ -73,6 +74,7 @@ nbformat==5.10.4
 nest-asyncio==1.6.0
 notebook_shim==0.2.4
 numpy==2.4.3
+openpyxl==3.1.5
 overrides==7.7.0
 packaging==26.0
 pandas==2.3.3

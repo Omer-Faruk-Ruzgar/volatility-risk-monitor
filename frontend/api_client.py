@@ -17,6 +17,8 @@ def _get(path: str, params: dict = None):
             "Backend'e bağlanılamadı. "
             "`uvicorn backend.main:app --reload` komutunu çalıştırdığınızdan emin olun."
         )
+    except requests.exceptions.Timeout:
+        raise TimeoutError("Backend yanıt vermedi (30s). Sunucunun çalıştığından emin olun.")
     except requests.exceptions.HTTPError as e:
         # Backend JSON yerine HTML döndürebilir (500 hatalarında), güvenli parse et
         try:
@@ -33,8 +35,8 @@ def get_assets() -> list:
     return data.get("tickers", [])
 
 
-# 2. get_returns(ticker, period) - Tarih/Değer çiftleri döner
-def get_returns(ticker, period="1Y") -> pd.DataFrame:
+# 2. get_returns(ticker) - Tarih/Değer çiftleri döner
+def get_returns(ticker) -> pd.DataFrame:
     """Hisse senedi getiri verilerini DataFrame olarak döner."""
     data = _get("/api/returns", params={"ticker": ticker})
     df = pd.DataFrame(data["data"])
@@ -210,7 +212,7 @@ def get_correlation_matrix(tickers):
     df_all = pd.DataFrame(all_returns).dropna()
     corr_matrix = df_all.corr()
 
-    if len(tickers) > 1:
+    if corr_matrix.shape[0] > 1:
         dists = 1 - corr_matrix
         
         # ClusterWarning hatasını önlemek için matrisi simetrik ve yoğunlaştırılmış vektöre çeviriyoruz

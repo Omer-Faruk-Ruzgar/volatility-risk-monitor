@@ -1,6 +1,11 @@
 import streamlit as st
-import google.generativeai as genai
 import os
+
+try:
+    import google.generativeai as genai
+    GENAI_AVAILABLE = True
+except ImportError:
+    GENAI_AVAILABLE = False
 
 # ==========================================
 # 1. ORTAK BAĞLAM FONKSİYONU
