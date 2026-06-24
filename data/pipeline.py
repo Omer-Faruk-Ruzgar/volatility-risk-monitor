@@ -1,15 +1,25 @@
 import pandas as pd
 from pathlib import Path
 from sqlalchemy import create_engine
-import argparse  
+import argparse
+import logging
+import sys
 from data.fetcher import fetch_data
 from data.cleaner import clean, compute_returns
 
-def run_pipeline(update=False):  # update parametresini ekledik
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s %(levelname)s %(message)s",
+    stream=sys.stdout,
+)
+log = logging.getLogger(__name__)
+
+
+def run_pipeline(update=False):
     """
     Veri çekme, temizleme ve veritabanina kaydetme adimlarini sirasiyla çaliştiran ana fonksiyon.
     """
-    print(f" Pipeline {'Güncelleme' if update else 'Kurulum'} Modunda Başlatiliyor...\n")
+    log.info("Pipeline %s modunda baslatiliyor.", "Guncelleme" if update else "Kurulum")
 
     # 1. AŞAMA: AYARLAR VE BAĞLANTI
     target_tickers = [
@@ -24,57 +34,46 @@ def run_pipeline(update=False):  # update parametresini ekledik
 
     # 2. AŞAMA: VERİ ÇEKME (Fetcher)
     if update:
-        print(" Sadece eksik veriler kontrol ediliyor...")
+        log.info("Eksik veriler kontrol ediliyor...")
         try:
-            # market.db'deki en son tarihi sorgula
-            last_date_query = "SELECT MAX(Date) FROM log_returns"
-            last_date = pd.read_sql(last_date_query, engine).iloc[0, 0]
-            
-            # Son tarihten 1 gün sonrasını başlangıç yap
+            last_date = pd.read_sql("SELECT MAX(Date) FROM log_returns", engine).iloc[0, 0]
             start_date = (pd.to_datetime(last_date) + pd.Timedelta(days=1)).strftime("%Y-%m-%d")
-            
-            print(f" {start_date} tarihinden itibaren veriler çekiliyor...")
+            log.info("%s tarihinden itibaren veriler cekiliyor...", start_date)
             raw_data = fetch_data(tickers=target_tickers, start=start_date)
-            
         except Exception as e:
-            print(f" Veritabani okunurken hata oluştu...")
-            print(f" Sifirdan kurulum moduna geçiliyor... Detay: {e}")
+            log.error("Veritabani okunurken hata: %s -- sifirdan kurulum moduna geciliyor.", e)
             raw_data = fetch_data(tickers=target_tickers, period="10y")
-            update = False # Hata alırsak kurulum moduna zorla çekiyoruz
+            update = False
     else:
-        print(" Yahoo Finance üzerinden 10 yillik veriler çekiliyor...")
+        log.info("Yahoo Finance uzerinden 10 yillik veriler cekiliyor...")
         raw_data = fetch_data(tickers=target_tickers, period="10y")
-    
-    # Veri gelmediyse işlemi durdur
+
     if raw_data is None or raw_data.empty:
-        print(" Sistem güncel veya veri çekilemedi. İşlem sonlandirildi...")
+        log.warning("Veri cekilemedi veya sistem zaten guncel. Islem sonlandirildi.")
         return
 
     # Sadece Kapanış (Close) fiyatlarını al
-    if 'Close' in raw_data.columns.levels[0]:
-        prices = raw_data['Close']
+    if hasattr(raw_data.columns, "levels") and "Close" in raw_data.columns.levels[0]:
+        prices = raw_data["Close"]
     else:
         prices = raw_data
 
-    # Tarih indeksini düzenle
     prices.index = pd.to_datetime(prices.index)
 
     # 3. AŞAMA: VERİ TEMİZLEME VE HESAPLAMA (Cleaner)
-    print(" Veriler temizleniyor ve logaritmik getiriler hesaplaniyor...")
+    log.info("Veriler temizleniyor ve logaritmik getiriler hesaplaniyor...")
     cleaned_prices = clean(prices)
     final_data = compute_returns(cleaned_prices)
 
     # 4. AŞAMA: VERİTABANINA KAYDETME (SQLAlchemy)
     if update:
-        # Mevcut verilerin altına ekle (append)
-        print(" Yeni veriler market.db tablosuna ekleniyor...")
-        final_data.to_sql('log_returns', con=engine, if_exists='append', index=True)
+        log.info("Yeni veriler market.db tablosuna ekleniyor (%d satir)...", len(final_data))
+        final_data.to_sql("log_returns", con=engine, if_exists="append", index=True)
     else:
-        # Tabloyu sil ve baştan yarat (replace)
-        print(" Veriler market.db dosyasina sifirdan yaziliyor...")
-        final_data.to_sql('log_returns', con=engine, if_exists='replace', index=True)
-    
-    print(f"\n TAMAMLANDI : '{db_path.name}' başariyla güncellendi!")
+        log.info("Veriler market.db dosyasina sifirdan yaziliyor (%d satir)...", len(final_data))
+        final_data.to_sql("log_returns", con=engine, if_exists="replace", index=True)
+
+    log.info("TAMAMLANDI: '%s' basariyla guncellendi.", db_path.name)
 
 if __name__ == "__main__":
     # Terminal komutlarını yönetmek için argparse ekliyoruz
