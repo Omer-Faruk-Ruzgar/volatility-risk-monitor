@@ -17,14 +17,16 @@ from api_client import (
     get_assets, get_returns, get_volatility,
     get_risk_metrics, get_backtest, get_breach_stats,
     get_portfolio_summary, get_all_summaries, get_correlation_matrix,
-    get_news, get_sentiment_alert, get_data_status, run_stress_test
+    get_news, get_sentiment_alert, get_data_status, run_stress_test,
+    get_geo_risk,
 )
 
 # Profesyonel Görsel Bileşenler
 from components import (
     line_chart, multi_line_chart, regime_chart,
     var_breach_chart, summary_table, ticker_card,
-    news_card, sentiment_alert_banner, OPEC_EVENTS, _OPEC_COLORS
+    news_card, sentiment_alert_banner, geo_risk_map,
+    OPEC_EVENTS, _OPEC_COLORS,
 )
 
 # Sayfa Ayarları
@@ -203,7 +205,7 @@ if page == "Ana Sayfa":
     st.subheader("Piyasa Risk Özeti")
     
     try:
-        with st.spinner("Piyasa özetleri backend'den çekiliyor, lütfen bekleyin..."):
+        with st.spinner("Piyasa özetleri yükleniyor..."):
             summaries = get_all_summaries()
 
         if summaries:
@@ -217,14 +219,36 @@ if page == "Ana Sayfa":
                         status=data['status']
                     )
         else:
-            st.warning("Henüz görüntülenecek veri bulunamadı. Lütfen backend bağlantısını kontrol edin.")
-            
+            st.warning("Henüz görüntülenecek veri bulunamadı. Veri pipeline'ının çalıştığından emin olun.")
+
+    except ConnectionError:
+        st.error("Backend'e bağlanılamadı.")
+        st.code("uvicorn backend.main:app --reload", language="bash")
+        st.caption("Yukarıdaki komutu çalıştırıp sayfayı yenileyin.")
+    except TimeoutError:
+        st.error("Backend yanıt vermedi (zaman aşımı). Sunucunun başlatıldığından emin olun.")
     except Exception as e:
         st.error(f"Dashboard yüklenirken bir hata oluştu: {e}")
 
     st.markdown("<br>", unsafe_allow_html=True)
     st.info(" **İpucu:** Yukarıdaki kartlar son GARCH volatilitesini gösterir. Detaylı analiz için sol menüden ilgili sekmeye geçiş yapabilirsiniz.")
     
+    # JEOPOLITİK RİSK HARİTASI
+    st.divider()
+    st.subheader("Jeopolitik Risk Gostergesi")
+    st.caption(
+        "Finnhub haber akisindan VADER duygu analizi ile hesaplanan bolgesel gerilim skoru. "
+        "Buyuk ve kirmizi daireler yuksek riski gosteriyor."
+    )
+    try:
+        with st.spinner("Bolgesel gerilim skorlari hesaplaniyor..."):
+            geo_regions = get_geo_risk()
+        geo_risk_map(geo_regions)
+    except ConnectionError:
+        st.warning("Jeopolitik risk haritasi yüklenemedi. Backend baglantisini kontrol edin.")
+    except Exception as e:
+        st.warning(f"Jeopolitik risk gostergesi yuklenemedi: {e}")
+
     # HABER AKIŞI VE DUYGU ANALİZİ (SENTIMENT)
     st.divider()
     st.subheader("Piyasa Duygu Analizi ve Haber Akışı")
@@ -239,10 +263,10 @@ if page == "Ana Sayfa":
     # Ticker Bazlı Haber Kartları
     col_sel, col_empty = st.columns([1, 3])
     with col_sel:
-        news_ticker = st.selectbox("Hisse Haberlerini İncele:", fetch_assets(), index=0)
+        news_ticker = st.selectbox("Hisse Haberlerini İncele:", fetch_assets(), format_func=ticker_label, index=0)
     
     try:
-        with st.spinner(f"{news_ticker} haberleri analiz ediliyor..."):
+        with st.spinner(f"{ticker_label(news_ticker)} haberleri analiz ediliyor..."):
             news_data = get_news(news_ticker, limit=5)
             
         c_news, c_sent = st.columns([2, 1])
@@ -274,7 +298,7 @@ if page == "Ana Sayfa":
         st.error(f"Haberler yüklenirken bir hata oluştu. Backend bağlantısını kontrol edin.")
 
     st.divider()
-    st.caption("Bu platform sadece akademik amaçlıdır ve yatırım tavsiyesi içermez. Veriler 5 dakikada bir güncellenir.")
+    st.caption("Bu platform sadece akademik amaçlıdır ve yatırım tavsiyesi içermez. Veriler her işlem günü piyasa kapanışından sonra otomatik olarak güncellenir.")
 
 
 # --- SAYFA: RETURNS ---
@@ -321,24 +345,57 @@ elif page == "Volatility":
 
     def render_volatility(ticker):
         try:
-            with st.spinner(f"{ticker} için volatilite modelleri hesaplanıyor..."):
+            with st.spinner(f"{ticker_label(ticker)} için volatilite modelleri hesaplanıyor..."):
                 df = get_volatility(ticker)
 
+            # Son değerleri filtrelemeden önce al (her zaman güncel kalır)
+            last_ewma     = df['EWMA'].iloc[-1]
+            last_garch    = df['GARCH'].iloc[-1]
+            last_forecast = df['Forecast'].iloc[-1]
+
+            df = apply_date_filter(df, key=f"vol_{ticker}")
+
             c1, c2, c3 = st.columns(3)
-            c1.metric("EWMA (Son)",     f"{df['EWMA'].iloc[-1]:.4f}")
-            c2.metric("GARCH (Son)",    f"{df['GARCH'].iloc[-1]:.4f}")
-            c3.metric("Forecast (Son)", f"{df['Forecast'].iloc[-1]:.4f}")
+            c1.metric("EWMA (Son)",     f"{last_ewma:.4f}")
+            c2.metric("GARCH (Son)",    f"{last_garch:.4f}")
+            c3.metric("Forecast (Son)", f"{last_forecast:.4f}")
 
             st.divider()
             multi_line_chart(
                 df, x="date",
                 y_cols=["EWMA", "GARCH", "Forecast"],
-                title=f"{ticker} — Volatilite Modelleri Karşılaştırması (Yıllıklandırılmış)",
+                title=f"{ticker} - Volatilite Modelleri Karşılaştırması (Yıllıklandırılmış)",
             )
 
             st.divider()
-            st.subheader(" Tarihsel Olaylar ve Volatilite Rejimleri")
-            regime_chart(df, ticker)
+            c_title, c_toggle = st.columns([4, 1])
+            c_title.subheader("Tarihsel Olaylar ve Volatilite Rejimleri")
+            show_opec = c_toggle.checkbox("OPEC Kararları", value=True, key=f"opec_{ticker}")
+            regime_chart(df, ticker, show_opec=show_opec)
+
+            # OPEC detay tablosu
+            if show_opec:
+                with st.expander("OPEC Karar Detayları"):
+                    type_labels = {"cut": "Kesinti", "increase": "Artış", "collapse": "Çöküş/Kriz"}
+                    opec_df = pd.DataFrame([
+                        {
+                            "Tarih":  e["date"],
+                            "Tür":    type_labels.get(e["type"], e["type"]),
+                            "Karar":  e["detail"],
+                        }
+                        for e in OPEC_EVENTS
+                    ])
+                    st.dataframe(
+                        opec_df.style.apply(
+                            lambda col: [
+                                f"color: {_OPEC_COLORS.get({'Kesinti':'cut','Artış':'increase','Çöküş/Kriz':'collapse'}.get(v,'cut'), '#F1EFE8')}"
+                                for v in col
+                            ] if col.name == "Tür" else [""] * len(col),
+                            axis=0,
+                        ),
+                        hide_index=True,
+                        use_container_width=True,
+                    )
 
             st.subheader("Model Özet İstatistikleri")
             stats = pd.DataFrame({
@@ -578,12 +635,15 @@ elif page == "Portföy":
         current_weights = []
         for t in selected:
             def_val = st.session_state.get("weight_inputs", {}).get(t, 100.0/len(selected) if len(selected)>0 else 0)
-            val = st.number_input(f"{t} (%)", 0.0, 100.0, value=float(st.session_state.get(f"num_{t}", def_val)), key=f"num_{t}", step=0.5)
+            val = st.number_input(f"{ticker_label(t)} (%)", 0.0, 100.0, value=float(st.session_state.get(f"num_{t}", def_val)), key=f"num_{t}", step=0.5)
             current_weights.append(val)
 
         # Canlı Toplam Göstergesi ve Renk Kodları (Issue Geliştirmesi)
         total_w = round(sum(current_weights), 2)
-        if abs(total_w - 100) < 0.1:
+        if len(selected) < 2:
+            st.markdown("### 🔴 Korelasyon analizi için en az 2 varlık seçin.")
+            btn_lock = True
+        elif abs(total_w - 100) < 0.1:
             st.markdown(f"### 🟢 Toplam Ağırlık: `% {total_w:.2f} / 100` (Mükemmel)")
             btn_lock = False
         elif total_w > 100:
@@ -656,16 +716,290 @@ elif page == "Portföy":
                 st.divider()
                 st.caption(" **Kritik Not:** Bu analiz tarihsel verilerle hesaplanmıştır. Korelasyonlar kriz anlarında değişkenlik gösterebilir.")
 
+                # --- Excel Export ---
+                alloc_df = pd.DataFrame([
+                    {"Varlık": ticker_label(t), "Ağırlık (%)": w * 100}
+                    for t, w in zip(selected, final_w_list)
+                ])
+                metrics_df = pd.DataFrame([{
+                    "Portföy VaR (95%)": f"{port_var:.4f}",
+                    "Expected Shortfall": f"{port_es:.4f}",
+                    "Çeşitlendirme Etkisi": f"{div_eff:.4f}",
+                }])
+                corr_export = corr_matrix.reset_index().rename(columns={"index": "Varlık"})
+                excel = to_excel_bytes({
+                    "Özet": metrics_df,
+                    "Dağılım": alloc_df,
+                    "Korelasyon Matrisi": corr_export,
+                })
+                st.download_button("Excel İndir", data=excel, file_name="portfoy_analizi.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+
         except Exception as e:
             st.error(f"Portföy analizi sırasında bir hata oluştu: {e}")
 
     # --- 🤖 5. INTERAKTIF CHATBOT (SAYFA ALTINDA HER AN AKTİF) ---
     st.divider()
-    
+
     # Gerçek zamanlı ağırlık verilerinin bota aktarılması
     bot_summary = st.session_state.get("last_portfolio_data") or {
         "allocation": {t: w for t, w in zip(selected, current_weights)}
     }
-    
+
     # Arkadaşının chatbot bileşeni çağrılıyor
     render_portfolio_chat(bot_summary)
+
+
+# --- SAYFA: KRİZ SİMÜLASYONU ---
+elif page == "Kriz Simülasyonu":
+    st.title("Kriz Modu Simülasyonu")
+    st.markdown(
+        "Portföyünüzün **2020 COVID çöküşü**, **Ukrayna savaşı** veya "
+        "**Fed faiz şoku** gibi tarihsel kriz dönemlerinde nasıl performans "
+        "göstereceğini simüle edin."
+    )
+
+    CRISIS_SCENARIOS = {
+        "COVID-19 Mart 2020":    ("2020-02-20", "2020-03-23"),
+        "Ukrayna Savaşı 2022":   ("2022-02-24", "2022-04-01"),
+        "Fed Faiz Şoku 2022":    ("2022-01-01", "2022-10-31"),
+        "Petrol Çöküşü 2020":    ("2020-03-01", "2020-04-30"),
+    }
+    CRISIS_DESC = {
+        "COVID-19 Mart 2020":    "Pandemi ilanıyla küresel piyasalar 33 günde %34 geriledi.",
+        "Ukrayna Savaşı 2022":   "Rusya işgaliyle enerji ve emtia piyasaları sert dalgalandı.",
+        "Fed Faiz Şoku 2022":    "40 yılın en agresif faiz artış döngüsü; tahvil ve büyüme varlıkları ağır kayıp yaşadı.",
+        "Petrol Çöküşü 2020":    "WTI vadeli işlemleri negatife döndü; enerji sektörü için tarihi kriz.",
+        "Özel Tarih Aralığı":   "Kendi tarih aralığınızı girin.",
+    }
+
+    col_left, col_right = st.columns([1, 2], gap="large")
+
+    #Sol panel: konfigürasyon 
+        
+    with col_left:
+        st.subheader("1. Portföy")
+
+        all_assets = fetch_assets()
+        prev_selection = st.session_state.get("selected_assets", all_assets[:3])
+        safe_defaults  = [a for a in prev_selection if a in all_assets] or all_assets[:3]
+
+        crisis_tickers = st.multiselect(
+            "Varlıklar:",
+            all_assets,
+            default=safe_defaults,
+            format_func=ticker_label,
+            key="crisis_tickers",
+        )
+
+        if not crisis_tickers:
+            st.info("En az 1 varlık seçin.")
+            st.stop()
+
+        equal_w = round(100 / len(crisis_tickers), 2)
+        crisis_weights = []
+        for t in crisis_tickers:
+            w_val = st.number_input(
+                f"{ticker_label(t)} (%)",
+                min_value=0.0,
+                max_value=100.0,
+                value=float(st.session_state.get(f"cw_{t}", equal_w)),
+                step=1.0,
+                key=f"cw_{t}",
+            )
+            crisis_weights.append(w_val)
+
+        total_cw = round(sum(crisis_weights), 2)
+        if abs(total_cw - 100) < 0.1:
+            st.success(f"Toplam: %{total_cw:.0f} ✓")
+        else:
+            st.warning(f"Toplam: %{total_cw:.1f} / 100 - tam 100 olmalı")
+
+        st.divider()
+        st.subheader("2. Senaryo")
+
+        scenario_options = list(CRISIS_SCENARIOS.keys()) + ["Özel Tarih Aralığı"]
+        selected_scenario = st.selectbox("Kriz Dönemi:", scenario_options, key="crisis_scenario")
+        st.caption(CRISIS_DESC.get(selected_scenario, ""))
+
+        if selected_scenario == "Özel Tarih Aralığı":
+            scenario_start = str(st.date_input("Başlangıç:", value=pd.Timestamp("2020-02-20"), key="crisis_start"))
+            scenario_end   = str(st.date_input("Bitiş:",     value=pd.Timestamp("2020-03-23"), key="crisis_end"))
+        else:
+            scenario_start, scenario_end = CRISIS_SCENARIOS[selected_scenario]
+            st.caption(f"**{scenario_start}** → **{scenario_end}**")
+
+        st.divider()
+        weights_ok = abs(total_cw - 100) < 0.1
+        run_btn = st.button(
+            "Simülasyonu Çalıştır",
+            type="primary",
+            use_container_width=True,
+            disabled=not weights_ok,
+            key="crisis_run",
+        )
+
+    #  Sağ panel: sonuçlar  
+    with col_right:
+        if not run_btn:
+            st.markdown("""
+                <div style="display:flex;align-items:center;justify-content:center;
+                            height:320px;border:2px dashed #142841;border-radius:12px;
+                            color:#8A9BB5;font-family:'Inter',sans-serif;">
+                    <div style="text-align:center">
+                        <div style="font-size:52px;margin-bottom:12px;">📉</div>
+                        <div>Portföyü yapılandırın ve simülasyonu başlatın</div>
+                    </div>
+                </div>
+            """, unsafe_allow_html=True)
+        else:
+            try:
+                final_weights = [w / 100 for w in crisis_weights]
+                with st.spinner(f"'{selected_scenario}' senaryosu simüle ediliyor..."):
+                    result = run_stress_test(crisis_tickers, final_weights, scenario_start, scenario_end)
+
+                cum_ret  = result["portfolio_cumulative_return"]
+                max_dd   = result["max_drawdown"]
+                worst    = result["worst_day"]
+                best     = result["best_day"]
+                n_days   = result["n_trading_days"]
+                baseline = result.get("baseline_cumulative_return")
+                contrib  = result["ticker_contributions"]
+
+                # Metrik satırı
+                m1, m2, m3, m4 = st.columns(4)
+                ret_color = "red" if cum_ret < 0 else "green"
+                m1.metric("Kümülatif Getiri",  f"%{cum_ret:.2f}")
+                m2.metric("Maks. Drawdown",    f"%{max_dd:.2f}")
+                m3.metric("En Kötü Gün",       f"%{worst:.2f}")
+                m4.metric("Simülasyon Süresi", f"{n_days} gün")
+
+                # Baz dönem karşılaştırması
+                if baseline is not None:
+                    diff = cum_ret - baseline
+                    if cum_ret < 0 and baseline >= 0:
+                        st.error(
+                            f"Normal dönemde portföy **%{baseline:.2f}** getiri sağlarken, "
+                            f"kriz döneminde **%{abs(cum_ret):.2f}** kaybetti."
+                        )
+                    else:
+                        arrow = "▼" if diff < 0 else "▲"
+                        st.info(
+                            f"Normal dönem: **%{baseline:.2f}** | "
+                            f"Kriz dönemi: **%{cum_ret:.2f}** | "
+                            f"Fark: {arrow} **%{abs(diff):.2f}**"
+                        )
+
+                st.divider()
+
+                # Kümülatif performans grafiği
+                daily_df = pd.DataFrame(result["daily_returns"])
+                daily_df["date"] = pd.to_datetime(daily_df["date"])
+
+                line_col = "#FF4B4B" if cum_ret < 0 else "#1D9E75"
+                fill_col = "rgba(255,75,75,0.08)" if cum_ret < 0 else "rgba(29,158,117,0.08)"
+
+                fig_cum = go.Figure()
+                fig_cum.add_trace(go.Scatter(
+                    x=daily_df["date"],
+                    y=daily_df["cumulative"],
+                    mode="lines",
+                    name="Kümülatif Getiri (%)",
+                    line=dict(color=line_col, width=2),
+                    fill="tozeroy",
+                    fillcolor=fill_col,
+                    hovertemplate="%{x|%d %b %Y}<br>%{y:.2f}%<extra></extra>",
+                ))
+                fig_cum.add_hline(y=0, line_dash="dash", line_color="#8A9BB5", opacity=0.4)
+                fig_cum.update_layout(
+                    title=f"{selected_scenario} - Kümülatif Portföy Performansı",
+                    xaxis_title="Tarih",
+                    yaxis_title="Kümülatif Getiri (%)",
+                    hovermode="x unified",
+                    template="plotly_dark",
+                    paper_bgcolor="#0B1929",
+                    plot_bgcolor="#0B1929",
+                    font=dict(color="#F1EFE8"),
+                )
+                st.plotly_chart(fig_cum, use_container_width=True)
+
+                # Varlık katkıları yatay bar
+                contrib_sorted = sorted(contrib.items(), key=lambda x: x[1])
+                bar_labels  = [ticker_label(t) for t, _ in contrib_sorted]
+                bar_values  = [v for _, v in contrib_sorted]
+                bar_colors  = ["#FF4B4B" if v < 0 else "#1D9E75" for v in bar_values]
+
+                fig_bar = go.Figure(go.Bar(
+                    x=bar_values,
+                    y=bar_labels,
+                    orientation="h",
+                    marker_color=bar_colors,
+                    text=[f"%{v:.2f}" for v in bar_values],
+                    textposition="outside",
+                    hovertemplate="%{y}: %{x:.2f}%<extra></extra>",
+                ))
+                fig_bar.update_layout(
+                    title="Varlık Katkıları (Ağırlıklı Kümülatif Getiri)",
+                    xaxis_title="Katkı (%)",
+                    template="plotly_dark",
+                    paper_bgcolor="#0B1929",
+                    plot_bgcolor="#0B1929",
+                    font=dict(color="#F1EFE8"),
+                    height=max(200, len(contrib) * 45 + 100),
+                    margin=dict(l=10, r=60),
+                )
+                st.plotly_chart(fig_bar, use_container_width=True)
+
+                # Risk yorumu
+                worst_t = min(contrib, key=contrib.get)
+                best_t  = max(contrib, key=contrib.get)
+                if contrib[worst_t] < -0.01:
+                    st.error(f"**En yüksek kayıp:** {ticker_label(worst_t)} → %{contrib[worst_t]:.2f}")
+                if contrib[best_t] > 0.01:
+                    st.success(f"**En iyi koruma:** {ticker_label(best_t)} → +%{contrib[best_t]:.2f}")
+                elif best_t != worst_t:
+                    st.info(f"**En az zarar eden:** {ticker_label(best_t)} → %{contrib[best_t]:.2f}")
+
+                # Excel export
+                st.divider()
+                export_daily = daily_df.rename(columns={
+                    "date":       "Tarih",
+                    "return":     "Günlük Getiri (%)",
+                    "cumulative": "Kümülatif Getiri (%)",
+                })
+                contrib_export_rows = []
+                for t, v in contrib_sorted:
+                    w_idx = crisis_tickers.index(t) if t in crisis_tickers else -1
+                    w_pct = crisis_weights[w_idx] if w_idx >= 0 else 0
+                    contrib_export_rows.append({"Varlık": ticker_label(t), "Ağırlık (%)": round(w_pct, 2), "Katkı (%)": v})
+                metrics_row = pd.DataFrame([{
+                    "Senaryo":              selected_scenario,
+                    "Başlangıç":           scenario_start,
+                    "Bitiş":               scenario_end,
+                    "Kümülatif Getiri (%)": cum_ret,
+                    "Maks. Drawdown (%)":  max_dd,
+                    "En Kötü Gün (%)":     worst,
+                    "En İyi Gün (%)":      best,
+                    "İşlem Günü":          n_days,
+                    "Baz Dönem (%)":       baseline,
+                }])
+                excel = to_excel_bytes({
+                    "Özet":            metrics_row,
+                    "Günlük Getiriler": export_daily,
+                    "Varlık Katkıları": pd.DataFrame(contrib_export_rows),
+                })
+                st.download_button(
+                    "Excel İndir",
+                    data=excel,
+                    file_name=f"kriz_{selected_scenario[:22].replace(' ', '_')}.xlsx",
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                )
+
+            except ValueError as e:
+                st.error(str(e))
+            except ConnectionError as e:
+                st.error(str(e))
+                st.code("uvicorn backend.main:app --reload", language="bash")
+            except TimeoutError as e:
+                st.error(str(e))
+            except Exception as e:
+                st.error(f"Simülasyon sırasında bir hata oluştu: {e}")

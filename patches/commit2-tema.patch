@@ -1,0 +1,117 @@
+From 826251c24759f8a4f4f545a4365a12dc77870a4d Mon Sep 17 00:00:00 2001
+From: Omer-Faruk-Ruzgar <ruzgaromerfaruk@outlook.com>
+Date: Wed, 24 Jun 2026 05:23:27 +0300
+Subject: [PATCH] =?UTF-8?q?feat:=20Bloomberg=20karanl=C4=B1k=20tema=20ve?=
+ =?UTF-8?q?=20g=C3=B6rsel=20yenileme?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+- Lacivert + amber renk paleti (.streamlit/config.toml)
+- _CHART_LAYOUT sabiti ve grafik fonksiyonlarına uygulanması
+- ticker_card HTML renklerinin yeni paletle güncellenmesi
+- Global CSS: Google Fonts (Inter, Space Grotesk, IBM Plex Mono)
+- Ana sayfa watermark ve başlık stilleri
+---
+ .streamlit/config.toml |  6 ++++++
+ frontend/app.py        | 16 ++++++++++++++--
+ frontend/components.py | 16 +++++++++-------
+ 3 files changed, 29 insertions(+), 9 deletions(-)
+ create mode 100644 .streamlit/config.toml
+
+diff --git a/.streamlit/config.toml b/.streamlit/config.toml
+new file mode 100644
+index 0000000..77071e3
+--- /dev/null
++++ b/.streamlit/config.toml
+@@ -0,0 +1,6 @@
++[theme]
++primaryColor      = "#E8A33D"
++backgroundColor   = "#0B1929"
++secondaryBackgroundColor = "#142841"
++textColor         = "#F1EFE8"
++font              = "sans serif"
+diff --git a/frontend/app.py b/frontend/app.py
+index f7962b0..ddd40a1 100644
+--- a/frontend/app.py
++++ b/frontend/app.py
+@@ -79,8 +79,20 @@ def render_for_ticker(render_fn):
+ if page == "Ana Sayfa":
+     st.markdown("""
+         <style>
+-        .main-title { font-size: 42px; font-weight: bold; text-align: center; color: #1E3A5F; margin-bottom: 8px; }
+-        .sub-title  { font-size: 17px; text-align: center; color: #555; margin-bottom: 32px; }
++        .main-title { font-size: 42px; font-weight: 700; text-align: center; color: #E8A33D; margin-bottom: 8px; font-family: 'Space Grotesk', sans-serif; letter-spacing: -0.02em; }
++        .sub-title  { font-size: 17px; text-align: center; color: #8A9BB5; margin-bottom: 32px; font-family: 'Inter', sans-serif; }
++        .stApp::before {
++            content: "";
++            position: fixed;
++            bottom: -5%;
++            right: -8%;
++            width: 35%;
++            height: 35%;
++            z-index: 0;
++            pointer-events: none;
++            background-image: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 280 220"><defs><linearGradient id="lg1" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="%23E8A33D"/><stop offset="1" stop-color="%231D9E75"/></linearGradient></defs><path d="M10,170 C60,120 100,200 150,140 C200,80 230,160 270,110" fill="none" stroke="url(%23lg1)" stroke-width="2" opacity="0.28"/><path d="M0,200 C50,160 100,220 150,170 C200,120 240,190 280,150" fill="none" stroke="url(%23lg1)" stroke-width="2" opacity="0.18"/></svg>');
++            background-repeat: no-repeat;
++        }
+         </style>
+     """, unsafe_allow_html=True)
+ 
+diff --git a/frontend/components.py b/frontend/components.py
+index 9852082..22621a5 100644
+--- a/frontend/components.py
++++ b/frontend/components.py
+@@ -18,8 +18,9 @@ def multi_line_chart(df: pd.DataFrame, x: str, y_cols: list, title: str):
+     if not available:
+         st.warning("Gösterilecek veri bulunamadı.")
+         return
+-    fig = px.line(df, x=x, y=available, title=title)
+-    fig.update_layout(xaxis_title="Tarih", yaxis_title="Volatilite", legend_title="Model")
++    fig = px.line(df, x=x, y=available, title=title,
++                  color_discrete_sequence=["#E8A33D", "#1D9E75", "#5B9BD5"])
++    fig.update_layout(xaxis_title="Tarih", yaxis_title="Volatilite", legend_title="Model", **_CHART_LAYOUT)
+     st.plotly_chart(fig, width='stretch')
+ 
+ 
+@@ -68,11 +69,12 @@ def var_breach_chart(df: pd.DataFrame, ticker: str, method: str = "parametric"):
+             ))
+ 
+     fig.update_layout(
+-        title=f"{ticker} — Getiri vs VaR (%95 Güven Aralığı)",
++        title=f"{ticker} - Getiri vs VaR (%95 Güven Aralığı)",
+         xaxis_title="Tarih",
+         yaxis_title="Günlük Getiri",
+         legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+         hovermode="x unified",
++        **_CHART_LAYOUT,
+     )
+     st.plotly_chart(fig, width='stretch')
+ 
+@@ -115,11 +117,11 @@ def ticker_card(ticker: str, garch_vol: float, delta: float, status: str):
+             margin-bottom: 10px;
+         ">
+             <div style="display: flex; justify-content: space-between; align-items: center;">
+-                <span style="font-weight: bold; font-size: 1.1rem; color: #1E3A5F;">{ticker}</span>
+-                <span style="font-size: 0.8rem; font-weight: bold; color: {color}; background-color: {bg_color}; padding: 2px 8px; border-radius: 15px;">{badge}</span>
++                <span style="font-weight: bold; font-size: 1.1rem; color: #E8A33D;">{ticker}</span>
++                <span style="font-size: 0.75rem; font-weight: bold; color: {color}; background-color: {bg_color}; padding: 2px 10px; border-radius: 12px; border: 1px solid {color};">{badge}</span>
+             </div>
+             <div style="margin-top: 10px;">
+-                <span style="font-size: 1.5rem; font-weight: bold; color: #333;">%{garch_vol*100:.2f}</span>
++                <span style="font-size: 1.5rem; font-weight: bold; color: #F1EFE8; font-family: 'IBM Plex Mono', monospace;">%{garch_vol*100:.2f}</span>
+                 <span style="font-size: 0.9rem; color: {delta_color}; margin-left: 8px;">
+                     {delta_icon} {abs(delta*100):.2f}
+                 </span>
+@@ -133,7 +135,7 @@ def regime_chart(df: pd.DataFrame, ticker: str):
+     """Tarihsel Olaylar ve Volatilite Rejimleri (Karanlık Tema)"""
+     df = df.copy()
+     df["date"] = pd.to_datetime(df["date"])
+-    
++
+     fig = go.Figure()
+ 
+     # 1. Ana GARCH Çizgisi
+-- 
+2.43.0
+
