@@ -4,16 +4,44 @@ import plotly.graph_objects as go
 import pandas as pd
 from datetime import datetime
 
+#  OPEC Karar Veritabanı
+# Tarihler grafiklerde dikey çizgi olarak işaretlenir.
+# type: "cut" (amber) | "increase" (teal) | "collapse" (kırmızı)
+OPEC_EVENTS = [
+    {"date": "2016-11-30", "short": "Viyana '16",         "detail": "OPEC Viyana Anlaşması: 8 yıl sonra ilk üretim kesintisi (−1.2M bpd)",       "type": "cut"},
+    {"date": "2018-06-22", "short": "Üretim Artışı '18",  "detail": "OPEC+ İran/Venezuela telafisi için üretim artışı",                            "type": "increase"},
+    {"date": "2019-12-06", "short": "Kesinti Derinleşme", "detail": "OPEC+ toplantısı: kesinti 1.7M bpd'ye derinleştirildi",                       "type": "cut"},
+    {"date": "2020-03-06", "short": "Fiyat Savaşı '20",   "detail": "OPEC+ görüşmeleri çöktü; Suudi Arabistan-Rusya fiyat savaşı başladı",         "type": "collapse"},
+    {"date": "2020-04-09", "short": "Tarihi Anlaşma '20", "detail": "G20 baskısıyla tarihi OPEC+ anlaşması: 9.7M bpd kesinti (COVID yanıtı)",     "type": "cut"},
+    {"date": "2021-07-18", "short": "Üretim Artışı '21",  "detail": "OPEC+ aylık 400k bpd artış anlaşması",                                        "type": "increase"},
+    {"date": "2022-10-05", "short": "−2M bpd '22",        "detail": "OPEC+ 2M bpd üretim kesintisi (ABD ara seçimleri öncesi, yüksek enflasyon)", "type": "cut"},
+    {"date": "2023-04-02", "short": "Suudi Sürprizi '23", "detail": "Suudi Arabistan 500k bpd gönüllü ek kesinti açıkladı (piyasayı şaşırttı)",   "type": "cut"},
+    {"date": "2023-11-30", "short": "Uzatma '23",          "detail": "OPEC+ kesintilerini Q1 2024'e uzattı; Suudi ek kesintisi devam etti",         "type": "cut"},
+    {"date": "2024-06-02", "short": "2025'e Uzatma",       "detail": "OPEC+ toplantısı: kesintiler 2025 sonuna kadar uzatıldı",                    "type": "cut"},
+]
+
+_OPEC_COLORS = {
+    "cut":      "#E8A33D",  # amber: üretim kesintisi (fiyat destekleyici)
+    "increase": "#1D9E75",  # teal: üretim artışı
+    "collapse": "#FF4B4B",  # kırmızı: çöküş / kriz
+}
+
+_CHART_LAYOUT = dict(
+    template="plotly_dark",
+    paper_bgcolor="#0B1929",
+    plot_bgcolor="#0B1929",
+    font=dict(color="#F1EFE8"),
+)
+
 def line_chart(df: pd.DataFrame, x: str, y: str, title: str):
     """Genel amaçlı tek serili çizgi grafiği (Örn: Returns)"""
-    fig = px.line(df, x=x, y=y, title=title)
-    fig.update_layout(xaxis_title="Tarih", yaxis_title=y)
+    fig = px.line(df, x=x, y=y, title=title, color_discrete_sequence=["#E8A33D"])
+    fig.update_layout(xaxis_title="Tarih", yaxis_title=y, **_CHART_LAYOUT)
     st.plotly_chart(fig, width='stretch')
 
 
 def multi_line_chart(df: pd.DataFrame, x: str, y_cols: list, title: str):
     """Birden fazla seriyi aynı grafikte gösterir (Örn: EWMA vs GARCH vs Forecast)"""
-    # Sadece DataFrame'de gerçekten var olan kolonları çiz
     available = [c for c in y_cols if c in df.columns]
     if not available:
         st.warning("Gösterilecek veri bulunamadı.")
@@ -88,32 +116,31 @@ def summary_table(df: pd.DataFrame, title: str = ""):
 
 def ticker_card(ticker: str, garch_vol: float, delta: float, status: str):
     """
-    Koyfin stili dinamik hisse özet kartı.
-    Görünüm: Ticker Adı | Son Volatilite | Değişim | Durum Badge
+    Bloomberg tarzı dinamik hisse özet kartı - lacivert + amber tema.
     """
     if status == "Ekstrem":
-        color = "#FF4B4B"  # Kırmızı
-        bg_color = "rgba(255, 75, 75, 0.1)"
-        badge = " EKSTREM"
+        color    = "#FF4B4B"
+        bg_color = "rgba(255, 75, 75, 0.12)"
+        badge    = "EKSTREM"
     elif status == "Yüksek":
-        color = "#FFA500"  # Turuncu
-        bg_color = "rgba(255, 165, 0, 0.1)"
-        badge = " YÜKSEK"
+        color    = "#E8A33D"
+        bg_color = "rgba(232, 163, 61, 0.12)"
+        badge    = "YÜKSEK"
     else:
-        color = "#28A745"  # Yeşil
-        bg_color = "rgba(40, 167, 69, 0.1)"
-        badge = " NORMAL"
+        color    = "#1D9E75"
+        bg_color = "rgba(29, 158, 117, 0.12)"
+        badge    = "NORMAL"
 
-    delta_icon = "▲" if delta > 0 else "▼"
-    delta_color = "red" if delta > 0 else "green"
+    delta_icon  = "▲" if delta > 0 else "▼"
+    delta_color = "#FF4B4B" if delta > 0 else "#1D9E75"
 
     st.markdown(f"""
         <div style="
-            background-color: #f8f9fa;
+            background-color: #142841;
             border-radius: 10px;
             padding: 15px;
-            border-left: 5px solid {color};
-            box-shadow: 2px 2px 5px rgba(0,0,0,0.05);
+            border-left: 4px solid {color};
+            box-shadow: 0 2px 8px rgba(0,0,0,0.3);
             margin-bottom: 10px;
         ">
             <div style="display: flex; justify-content: space-between; align-items: center;">

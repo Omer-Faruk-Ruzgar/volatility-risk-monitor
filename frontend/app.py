@@ -203,7 +203,7 @@ if page == "Ana Sayfa":
     st.subheader("Piyasa Risk Özeti")
     
     try:
-        with st.spinner("Piyasa özetleri backend'den çekiliyor, lütfen bekleyin..."):
+        with st.spinner("Piyasa özetleri yükleniyor..."):
             summaries = get_all_summaries()
 
         if summaries:
@@ -217,8 +217,14 @@ if page == "Ana Sayfa":
                         status=data['status']
                     )
         else:
-            st.warning("Henüz görüntülenecek veri bulunamadı. Lütfen backend bağlantısını kontrol edin.")
-            
+            st.warning("Henüz görüntülenecek veri bulunamadı. Veri pipeline'ının çalıştığından emin olun.")
+
+    except ConnectionError:
+        st.error("Backend'e bağlanılamadı.")
+        st.code("uvicorn backend.main:app --reload", language="bash")
+        st.caption("Yukarıdaki komutu çalıştırıp sayfayı yenileyin.")
+    except TimeoutError:
+        st.error("Backend yanıt vermedi (zaman aşımı). Sunucunun başlatıldığından emin olun.")
     except Exception as e:
         st.error(f"Dashboard yüklenirken bir hata oluştu: {e}")
 
@@ -239,10 +245,10 @@ if page == "Ana Sayfa":
     # Ticker Bazlı Haber Kartları
     col_sel, col_empty = st.columns([1, 3])
     with col_sel:
-        news_ticker = st.selectbox("Hisse Haberlerini İncele:", fetch_assets(), index=0)
+        news_ticker = st.selectbox("Hisse Haberlerini İncele:", fetch_assets(), format_func=ticker_label, index=0)
     
     try:
-        with st.spinner(f"{news_ticker} haberleri analiz ediliyor..."):
+        with st.spinner(f"{ticker_label(news_ticker)} haberleri analiz ediliyor..."):
             news_data = get_news(news_ticker, limit=5)
             
         c_news, c_sent = st.columns([2, 1])
@@ -274,7 +280,7 @@ if page == "Ana Sayfa":
         st.error(f"Haberler yüklenirken bir hata oluştu. Backend bağlantısını kontrol edin.")
 
     st.divider()
-    st.caption("Bu platform sadece akademik amaçlıdır ve yatırım tavsiyesi içermez. Veriler 5 dakikada bir güncellenir.")
+    st.caption("Bu platform sadece akademik amaçlıdır ve yatırım tavsiyesi içermez. Veriler her işlem günü piyasa kapanışından sonra otomatik olarak güncellenir.")
 
 
 # --- SAYFA: RETURNS ---
@@ -321,24 +327,57 @@ elif page == "Volatility":
 
     def render_volatility(ticker):
         try:
-            with st.spinner(f"{ticker} için volatilite modelleri hesaplanıyor..."):
+            with st.spinner(f"{ticker_label(ticker)} için volatilite modelleri hesaplanıyor..."):
                 df = get_volatility(ticker)
 
+            # Son değerleri filtrelemeden önce al (her zaman güncel kalır)
+            last_ewma     = df['EWMA'].iloc[-1]
+            last_garch    = df['GARCH'].iloc[-1]
+            last_forecast = df['Forecast'].iloc[-1]
+
+            df = apply_date_filter(df, key=f"vol_{ticker}")
+
             c1, c2, c3 = st.columns(3)
-            c1.metric("EWMA (Son)",     f"{df['EWMA'].iloc[-1]:.4f}")
-            c2.metric("GARCH (Son)",    f"{df['GARCH'].iloc[-1]:.4f}")
-            c3.metric("Forecast (Son)", f"{df['Forecast'].iloc[-1]:.4f}")
+            c1.metric("EWMA (Son)",     f"{last_ewma:.4f}")
+            c2.metric("GARCH (Son)",    f"{last_garch:.4f}")
+            c3.metric("Forecast (Son)", f"{last_forecast:.4f}")
 
             st.divider()
             multi_line_chart(
                 df, x="date",
                 y_cols=["EWMA", "GARCH", "Forecast"],
-                title=f"{ticker} — Volatilite Modelleri Karşılaştırması (Yıllıklandırılmış)",
+                title=f"{ticker} - Volatilite Modelleri Karşılaştırması (Yıllıklandırılmış)",
             )
 
             st.divider()
-            st.subheader(" Tarihsel Olaylar ve Volatilite Rejimleri")
-            regime_chart(df, ticker)
+            c_title, c_toggle = st.columns([4, 1])
+            c_title.subheader("Tarihsel Olaylar ve Volatilite Rejimleri")
+            show_opec = c_toggle.checkbox("OPEC Kararları", value=True, key=f"opec_{ticker}")
+            regime_chart(df, ticker, show_opec=show_opec)
+
+            # OPEC detay tablosu
+            if show_opec:
+                with st.expander("OPEC Karar Detayları"):
+                    type_labels = {"cut": "Kesinti", "increase": "Artış", "collapse": "Çöküş/Kriz"}
+                    opec_df = pd.DataFrame([
+                        {
+                            "Tarih":  e["date"],
+                            "Tür":    type_labels.get(e["type"], e["type"]),
+                            "Karar":  e["detail"],
+                        }
+                        for e in OPEC_EVENTS
+                    ])
+                    st.dataframe(
+                        opec_df.style.apply(
+                            lambda col: [
+                                f"color: {_OPEC_COLORS.get({'Kesinti':'cut','Artış':'increase','Çöküş/Kriz':'collapse'}.get(v,'cut'), '#F1EFE8')}"
+                                for v in col
+                            ] if col.name == "Tür" else [""] * len(col),
+                            axis=0,
+                        ),
+                        hide_index=True,
+                        use_container_width=True,
+                    )
 
             st.subheader("Model Özet İstatistikleri")
             stats = pd.DataFrame({
@@ -578,12 +617,15 @@ elif page == "Portföy":
         current_weights = []
         for t in selected:
             def_val = st.session_state.get("weight_inputs", {}).get(t, 100.0/len(selected) if len(selected)>0 else 0)
-            val = st.number_input(f"{t} (%)", 0.0, 100.0, value=float(st.session_state.get(f"num_{t}", def_val)), key=f"num_{t}", step=0.5)
+            val = st.number_input(f"{ticker_label(t)} (%)", 0.0, 100.0, value=float(st.session_state.get(f"num_{t}", def_val)), key=f"num_{t}", step=0.5)
             current_weights.append(val)
 
         # Canlı Toplam Göstergesi ve Renk Kodları (Issue Geliştirmesi)
         total_w = round(sum(current_weights), 2)
-        if abs(total_w - 100) < 0.1:
+        if len(selected) < 2:
+            st.markdown("### 🔴 Korelasyon analizi için en az 2 varlık seçin.")
+            btn_lock = True
+        elif abs(total_w - 100) < 0.1:
             st.markdown(f"### 🟢 Toplam Ağırlık: `% {total_w:.2f} / 100` (Mükemmel)")
             btn_lock = False
         elif total_w > 100:
