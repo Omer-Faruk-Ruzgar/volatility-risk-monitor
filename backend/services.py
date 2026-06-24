@@ -6,10 +6,12 @@
 # Şu an için sadece iskelet kodu içeriyor.
 # Üye 2'nin veri pipeline'ı hazır olduğunda burası genişletilecek.
 import time
-import os 
+import os
+import xml.etree.ElementTree as ET
 import requests
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
-from datetime  import datetime , timedelta 
+from datetime  import datetime , timedelta
 
 import pandas as pd
 from sqlalchemy import create_engine
@@ -422,6 +424,114 @@ def run_stress_test(tickers: list, weights: list, start_date: str, end_date: str
     }
 
 
+def get_risk_events(ticker: str, method: str = "parametric", confidence: float = 0.95) -> dict:
+    """
+    VaR ihlali ve GARCH spike gunlerini birlestirip her olay icin
+    yakin tarihteki Finnhub haberlerini eslestirir.
+    Son 30 olay donulur, haberler tek toplu Finnhub cagrisiyla eslestirilir.
+    """
+    cache_key = f"{ticker}_risk_events_{method}_{confidence}"
+    if cache_key in _cache:
+        ts, data = _cache[cache_key]
+        if time.time() - ts < CACHE_TTL:
+            return data
+
+    returns = _load_returns(ticker)
+
+    # 1. VaR ihlal tarihleri
+    var_result = _compute_var(returns, confidence=confidence, method=method)
+    breach_set = set(var_result["breaches"])
+
+    # 2. GARCH spike tarihleri (tarihin ust %10'luk dilimi, 90. yuzdeli)
+    garch_series = garch_volatility(returns)
+    spike_threshold = float(garch_series.quantile(0.90))
+    spike_set = {d.strftime("%Y-%m-%d") for d in garch_series[garch_series > spike_threshold].index}
+
+    # 3. Birlesik olay sozlugu
+    garch_dict = {d.strftime("%Y-%m-%d"): float(v) for d, v in garch_series.items()}
+    return_dict = {d.strftime("%Y-%m-%d"): float(v) for d, v in returns.items()}
+
+    events_by_date = {}
+    for d in breach_set | spike_set:
+        types = []
+        if d in breach_set:
+            types.append("VaR Ihlali")
+        if d in spike_set:
+            types.append("Volatilite Spike")
+        events_by_date[d] = {
+            "date": d,
+            "event_types": types,
+            "garch_vol": garch_dict.get(d),
+            "return_value": return_dict.get(d),
+            "news": [],
+            "has_archive": False,
+        }
+
+    # Tarihe gore azalan sirada, son 30 olay
+    sorted_events = sorted(events_by_date.values(), key=lambda x: x["date"], reverse=True)[:30]
+
+    # 4. Son 365 gun icindeki olaylar icin tek toplu Finnhub cagrisi
+    cutoff_iso = (datetime.now() - timedelta(days=365)).strftime("%Y-%m-%d")
+    recent_events = [e for e in sorted_events if e["date"] >= cutoff_iso]
+
+    if recent_events and FINNHUB_API_KEY:
+        oldest = min(e["date"] for e in recent_events)
+        newest = max(e["date"] for e in recent_events)
+        from_dt = (pd.to_datetime(oldest) - pd.Timedelta(days=2)).strftime("%Y-%m-%d")
+        to_dt   = (pd.to_datetime(newest) + pd.Timedelta(days=2)).strftime("%Y-%m-%d")
+
+        news_url = (
+            f"https://finnhub.io/api/v1/company-news"
+            f"?symbol={ticker}&from={from_dt}&to={to_dt}&token={FINNHUB_API_KEY}"
+        )
+        try:
+            resp = requests.get(news_url, timeout=15)
+            if resp.status_code == 200:
+                raw_news = resp.json()
+                analyzer = SentimentIntensityAnalyzer()
+
+                news_by_date: dict = {}
+                for item in raw_news:
+                    try:
+                        item_date = datetime.utcfromtimestamp(item.get("datetime", 0)).strftime("%Y-%m-%d")
+                    except Exception:
+                        continue
+                    headline = item.get("headline", "")
+                    scores = analyzer.polarity_scores(headline)
+                    compound = scores["compound"]
+                    label = "positive" if compound > 0.05 else ("negative" if compound < -0.05 else "neutral")
+                    processed = {
+                        "headline": headline,
+                        "source":   item.get("source", ""),
+                        "datetime": item.get("datetime", 0),
+                        "url":      item.get("url", ""),
+                        "compound_score": compound,
+                        "sentiment_label": label,
+                    }
+                    news_by_date.setdefault(item_date, []).append(processed)
+
+                for event in recent_events:
+                    event_dt = pd.to_datetime(event["date"])
+                    nearby = []
+                    for offset in range(-2, 3):
+                        day = (event_dt + pd.Timedelta(days=offset)).strftime("%Y-%m-%d")
+                        nearby.extend(news_by_date.get(day, []))
+                    nearby.sort(key=lambda x: x["datetime"], reverse=True)
+                    event["news"] = nearby[:3]
+                    event["has_archive"] = True
+
+        except Exception as exc:
+            print(f"Risk events haber cekme hatasi ({ticker}): {exc}")
+
+    output = {
+        "ticker": ticker,
+        "spike_threshold": spike_threshold,
+        "events": sorted_events,
+    }
+    _cache[cache_key] = (time.time(), output)
+    return output
+
+
 def get_sentiment_alert(ticker: str) -> dict:
     #  Haber verilerini al Son 15 haber
     news_data = get_news(ticker, limit=15)
@@ -477,6 +587,57 @@ def get_sentiment_alert(ticker: str) -> dict:
     }
 
 
+_GEO_RSS_FEEDS = [
+    "http://feeds.bbci.co.uk/news/world/rss.xml",
+    "http://feeds.bbci.co.uk/news/business/rss.xml",
+    "https://www.aljazeera.com/xml/rss/all.xml",
+    "https://rss.dw.com/rdf/rss-en-world",        # RDF/RSS 1.0 format
+    "https://feeds.npr.org/1004/rss.xml",
+    "https://finance.yahoo.com/news/rssindex",
+]
+
+# RSS 1.0 (RDF) namespace
+_RSS1_NS = "http://purl.org/rss/1.0/"
+
+
+def _fetch_single_rss(url: str, timeout: int = 4) -> list:
+    """Tek bir RSS beslemesinden basliklar ceker. ThreadPoolExecutor icin kullanilir."""
+    headers = {"User-Agent": "Mozilla/5.0 (compatible; FinVolix/1.0)"}
+    try:
+        resp = requests.get(url, timeout=timeout, headers=headers)
+        if resp.status_code != 200:
+            return []
+        root = ET.fromstring(resp.content)
+        items = root.findall(".//item")
+        if not items:
+            items = root.findall(f".//{{{_RSS1_NS}}}item")
+        result = []
+        for item in items:
+            # Element alt elemani olmadigi icin bool(element)=False olabilir; is None kullan
+            title = item.find("title")
+            if title is None:
+                title = item.find(f"{{{_RSS1_NS}}}title")
+            if title is not None and title.text:
+                result.append(title.text.strip())
+        return result
+    except Exception as e:
+        print(f"RSS feed hatasi ({url}): {e}")
+        return []
+
+
+def _get_rss_headlines(feeds: list = _GEO_RSS_FEEDS) -> list:
+    """
+    Verilen RSS beslemelerini paralel olarak ceker (ThreadPoolExecutor).
+    Sirali ~3s sururken paralelde en yavas feed kadar (~0.75s) surer.
+    """
+    headlines = []
+    with ThreadPoolExecutor(max_workers=len(feeds)) as pool:
+        futures = {pool.submit(_fetch_single_rss, url): url for url in feeds}
+        for future in as_completed(futures):
+            headlines.extend(future.result())
+    return headlines
+
+
 def _get_general_news(limit: int = 100) -> list:
     """
     Finnhub genel piyasa haberlerini cekmek icin kullanilan ozel fonksiyon.
@@ -512,12 +673,10 @@ def get_geo_risk() -> dict:
         if time.time() - ts < 7200:
             return data
 
-    all_news = _get_general_news(limit=100)
-    all_headlines = [
-        item.get("headline", "")
-        for item in all_news
-        if item.get("headline")
-    ]
+    finnhub_news = _get_general_news(limit=100)
+    finnhub_headlines = [item["headline"] for item in finnhub_news if item.get("headline")]
+    rss_headlines = _get_rss_headlines()
+    all_headlines = finnhub_headlines + rss_headlines
 
     results = {}
     for region_id, region in RISK_REGIONS.items():
@@ -526,14 +685,20 @@ def get_geo_risk() -> dict:
             h for h in all_headlines
             if any(kw in h.lower() for kw in keywords_lower)
         ]
-        score = score_region(region_headlines)
+        base_score = score_region(region_headlines)
+        # Volume bonus: daha fazla haber coverage = daha yuksek piyasa dikkati (maks +2)
+        volume_bonus = min(2.0, len(region_headlines) * 0.25)
+        score = min(10.0, round(base_score + volume_bonus, 1))
+        top_headlines = region_headlines[:3]
         results[region_id] = {
-            "label":         region["label"],
-            "lat":           region["lat"],
-            "lon":           region["lon"],
-            "score":         score,
-            "tickers":       region["tickers"],
+            "label":          region["label"],
+            "lat":            region["lat"],
+            "lon":            region["lon"],
+            "score":          score,
+            "tickers":        region["tickers"],
             "headline_count": len(region_headlines),
+            "top_headlines":  top_headlines,
+            "description":    region.get("description", ""),
         }
 
     _cache[cache_key] = (time.time(), results)

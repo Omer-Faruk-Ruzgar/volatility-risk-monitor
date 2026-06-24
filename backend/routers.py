@@ -9,7 +9,7 @@ from fastapi import APIRouter, HTTPException
 
 
  # schemas.py'da tanımladığımız modeller
-from backend.schemas import VaRResponse , VolatilityResponse, ReturnsResponse , NewsResponse , PortfolioSummaryResponse , SentimentAlertResponse, StressTestResponse, GeoRiskResponse
+from backend.schemas import VaRResponse , VolatilityResponse, ReturnsResponse , NewsResponse , PortfolioSummaryResponse , SentimentAlertResponse, StressTestResponse, GeoRiskResponse, RiskEventsResponse
 
 
 from backend import services
@@ -149,5 +149,23 @@ def geo_risk_endpoint():
     """Jeopolitik risk bolgelerinin guncel gerilim skorlarini dondurur."""
     try:
         return {"regions": services.get_geo_risk()}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/risk-events/{ticker}", response_model=RiskEventsResponse)
+def risk_events_endpoint(
+    ticker: str,
+    method: str = "parametric",
+    confidence: float = 0.95,
+):
+    """
+    Ticker icin VaR ihlali ve GARCH spike gunlerini,
+    yakin tarihteki Finnhub haberleriyle eslestirerek dondurur.
+    """
+    try:
+        return services.get_risk_events(ticker, method=method, confidence=confidence)
+    except (FileNotFoundError, ValueError) as e:
+        raise HTTPException(status_code=404, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

@@ -276,17 +276,26 @@ def run_stress_test(tickers: list, weights: list, start_date: str, end_date: str
         raise TimeoutError("Backend yanıt vermedi (30s). Sunucunun çalıştığından emin olun.")
 
 
+@st.cache_data(ttl=3600)
 def get_geo_risk() -> dict:
     """Jeopolitik risk bolgelerinin guncel skorlarini dondurur."""
     data = _get("/api/geo-risk")
     return data.get("regions", {})
 
 
+@st.cache_data(ttl=1800)
 def get_news(ticker: str, limit: int = 10) -> dict:
     """Finnhub üzerinden seçili varlığın haber akışını ve duygu skorlarını döner."""
     return _get(f"/api/news/{ticker}", params={"limit": limit})
 
 
+@st.cache_data(ttl=1800)
 def get_sentiment_alert(ticker: str) -> dict:
     """Haber duygu skoru ve volatiliteyi birleştirerek kritik alarm durumunu döner."""
     return _get(f"/api/news/sentiment-alert/{ticker}")
+
+
+@st.cache_data(ttl=3600)
+def get_risk_events(ticker: str, method: str = "parametric", confidence: float = 0.95) -> dict:
+    """VaR ihlali ve GARCH spike gunleri ile yakin tarihteki haberleri dondurur."""
+    return _get(f"/api/risk-events/{ticker}", params={"method": method, "confidence": confidence})

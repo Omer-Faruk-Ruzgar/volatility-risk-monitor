@@ -18,7 +18,7 @@ from api_client import (
     get_risk_metrics, get_backtest, get_breach_stats,
     get_portfolio_summary, get_all_summaries, get_correlation_matrix,
     get_news, get_sentiment_alert, get_data_status, run_stress_test,
-    get_geo_risk,
+    get_geo_risk, get_risk_events,
 )
 
 # Profesyonel Görsel Bileşenler
@@ -26,16 +26,17 @@ from components import (
     line_chart, multi_line_chart, regime_chart,
     var_breach_chart, summary_table, ticker_card,
     news_card, sentiment_alert_banner, geo_risk_map,
+    risk_event_card, opec_decision_table,
     OPEC_EVENTS, _OPEC_COLORS,
 )
 
 # Sayfa Ayarları
-st.set_page_config(page_title="Volatility Risk Monitor", layout="wide")
+st.set_page_config(page_title="FinVolix", layout="wide")
 
 # Global CSS - tüm sayfalarda yüklenir
 st.markdown("""
 <style>
-@import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@600;700&family=Inter:wght@400;500;600&family=IBM+Plex+Mono:wght@500&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Syne:wght@700;800&family=Space+Grotesk:wght@600;700&family=Inter:wght@400;500;600&family=IBM+Plex+Mono:wght@500&display=swap');
 
 /* Gövde ve genel metin - Inter */
 html, body, [class*="st-"], .stMarkdown p, .stCaption,
@@ -99,7 +100,15 @@ def fetch_assets():
         return ["XOM", "CVX", "USO", "BNO", "XLE", "UNG", "KSA", "GLD", "WEAT", "TLT", "SPY"]
 
 # Sidebar Navigasyonu
-st.sidebar.title("Volatility Risk Monitor")
+st.sidebar.markdown("""
+<div style="padding:6px 0 4px 0;">
+  <div style="font-family:'Syne',sans-serif;font-weight:800;font-size:1.75rem;letter-spacing:-0.025em;line-height:1.1;">
+    <span style="color:#F1EFE8;">Fin</span><span style="color:#E8A33D;">Vol</span><span style="color:#1D9E75;">ix</span>
+  </div>
+  <div style="font-family:'Inter',sans-serif;font-size:0.65rem;letter-spacing:0.18em;color:#4A6A8A;text-transform:uppercase;margin-top:4px;">Risk Analytics</div>
+  <div style="margin-top:10px;height:1.5px;background:linear-gradient(90deg,#E8A33D 0%,#1D9E75 60%,transparent 100%);border-radius:2px;"></div>
+</div>
+""", unsafe_allow_html=True)
 page = st.sidebar.radio(
     "Gezinti:",
     ["Ana Sayfa", "Returns", "Volatility", "Risk Metrics", "Backtest", "Portföy", "Kriz Simülasyonu"]
@@ -187,7 +196,7 @@ def render_for_ticker(render_fn):
 if page == "Ana Sayfa":
     st.markdown("""
         <style>
-        .main-title { font-size: 42px; font-weight: 700; text-align: center; color: #E8A33D; margin-bottom: 8px; font-family: 'Space Grotesk', sans-serif; letter-spacing: -0.02em; }
+        .main-title { font-size: 56px; font-weight: 800; text-align: center; margin-bottom: 6px; font-family: 'Syne', sans-serif; letter-spacing: -0.03em; line-height: 1.05; }
         .sub-title  { font-size: 17px; text-align: center; color: #8A9BB5; margin-bottom: 32px; font-family: 'Inter', sans-serif; }
         .stApp::before {
             content: "";
@@ -204,7 +213,14 @@ if page == "Ana Sayfa":
         </style>
     """, unsafe_allow_html=True)
 
-    st.markdown('<div class="main-title">Volatility Risk Monitor</div>', unsafe_allow_html=True)
+    st.markdown(
+        '<div class="main-title">'
+        '<span style="color:#F1EFE8;">Fin</span>'
+        '<span style="color:#E8A33D;">Vol</span>'
+        '<span style="color:#1D9E75;">ix</span>'
+        '</div>',
+        unsafe_allow_html=True,
+    )
     st.markdown('<div class="sub-title">Finansal piyasaların anlık risk durumunu ve oynaklık metriklerini tek bakışta izleyin.</div>', unsafe_allow_html=True)
     
     st.divider()
@@ -383,27 +399,8 @@ elif page == "Volatility":
 
             # OPEC detay tablosu
             if show_opec:
-                with st.expander("OPEC Karar Detayları"):
-                    type_labels = {"cut": "Kesinti", "increase": "Artış", "collapse": "Çöküş/Kriz"}
-                    opec_df = pd.DataFrame([
-                        {
-                            "Tarih":  e["date"],
-                            "Tür":    type_labels.get(e["type"], e["type"]),
-                            "Karar":  e["detail"],
-                        }
-                        for e in OPEC_EVENTS
-                    ])
-                    st.dataframe(
-                        opec_df.style.apply(
-                            lambda col: [
-                                f"color: {_OPEC_COLORS.get({'Kesinti':'cut','Artış':'increase','Çöküş/Kriz':'collapse'}.get(v,'cut'), '#F1EFE8')}"
-                                for v in col
-                            ] if col.name == "Tür" else [""] * len(col),
-                            axis=0,
-                        ),
-                        hide_index=True,
-                        use_container_width=True,
-                    )
+                with st.expander("OPEC Karar Detaylari"):
+                    opec_decision_table(OPEC_EVENTS)
 
             st.subheader("Model Özet İstatistikleri")
             stats = pd.DataFrame({
@@ -475,6 +472,34 @@ elif page == "Risk Metrics":
             export_df = df.rename(columns={"date": "Tarih", "return": "Getiri", "var": "VaR (%95)", "es": "ES", "is_breach": "İhlal"})
             excel = to_excel_bytes({"Risk Metrikleri": export_df})
             st.download_button("Excel İndir", data=excel, file_name=f"{ticker}_risk_metrikleri.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+
+            # --- RISK OLAYLARI VE HABER AKISI ---
+            st.divider()
+            st.subheader("Risk Olaylari ve Haber Akisi")
+            st.caption(
+                "VaR ihlali: gerceklesen gunluk kayip parametrik VaR esigini asti. "
+                "Volatilite Spike: GARCH koşullu volatilite o gun icin tarihin ust %10'luk "
+                "dilimine girdi. Her olay icin +-2 gunluk penceredeki Finnhub haberleri eslestirildi."
+            )
+
+            with st.spinner("Risk olaylari ve haberler yukleniyor (ilk yuklemede GARCH modeli kurulur, 10-20 saniye surebilir)..."):
+                events_data = get_risk_events(ticker, method=method, confidence=0.95)
+
+            spike_threshold = events_data.get("spike_threshold", 0.0)
+            all_events = events_data.get("events", [])
+
+            # Secili tarih araligina gore filtrele
+            min_date_str = df["date"].min().strftime("%Y-%m-%d")
+            filtered_events = [e for e in all_events if e["date"] >= min_date_str]
+
+            st.caption(f"GARCH Spike esigi: {spike_threshold:.2%} yillik volatilite (tarihin 90. yuzdeli)")
+
+            if not filtered_events:
+                st.info("Secili donemde risk olayi bulunamadi.")
+            else:
+                st.caption(f"Toplam {len(filtered_events)} risk olayi -- tarih sirasina gore azalan")
+                for event in filtered_events:
+                    risk_event_card(event)
 
         except ConnectionError as e:
             st.error(str(e))
@@ -748,12 +773,25 @@ elif page == "Portföy":
     # --- 🤖 5. INTERAKTIF CHATBOT (SAYFA ALTINDA HER AN AKTİF) ---
     st.divider()
 
-    # Gerçek zamanlı ağırlık verilerinin bota aktarılması
-    bot_summary = st.session_state.get("last_portfolio_data") or {
-        "allocation": {t: w for t, w in zip(selected, current_weights)}
-    }
+    # Chatbot için risk metrikleri: önce cache'e bak, yoksa otomatik çek
+    cache_key = f"portfolio_{'_'.join(selected)}_{current_weights}"
+    if st.session_state.get("last_portfolio_cache_key") != cache_key:
+        st.session_state.pop("last_portfolio_data", None)
+        st.session_state["last_portfolio_cache_key"] = cache_key
 
-    # Arkadaşının chatbot bileşeni çağrılıyor
+    if "last_portfolio_data" not in st.session_state:
+        with st.spinner("Chatbot için risk metrikleri hesaplanıyor..."):
+            try:
+                final_w_auto = [w / 100 for w in current_weights]
+                auto_data = get_portfolio_summary(selected, final_w_auto)
+                auto_data["allocation"] = {t: w for t, w in zip(selected, current_weights)}
+                st.session_state["last_portfolio_data"] = auto_data
+            except Exception as e:
+                st.warning(f"Risk metrikleri otomatik çekilemedi: {e}")
+                auto_data = {"allocation": {t: w for t, w in zip(selected, current_weights)}}
+                st.session_state["last_portfolio_data"] = auto_data
+
+    bot_summary = st.session_state["last_portfolio_data"]
     render_portfolio_chat(bot_summary)
 
 

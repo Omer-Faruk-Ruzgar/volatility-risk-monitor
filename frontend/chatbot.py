@@ -1,5 +1,6 @@
 import streamlit as st
 import os
+import time
 
 try:
     import google.generativeai as genai
@@ -33,8 +34,14 @@ def build_portfolio_context(summary: dict) -> str:
         f"Portföy VaR (95%): {fmt(port_var)}",
         f"Expected Shortfall (ES): {fmt(port_es)}",
         f"Çeşitlendirme Etkisi: {fmt(div_eff)}",
-        f"Yüksek Korelasyonlu Çiftler: {pairs}"
+        f"Yüksek Korelasyonlu Çiftler: {pairs}",
     ]
+    missing = [line for line in context_lines if "Veri yok" in line]
+    if missing:
+        context_lines.append(
+            "NOT: Yukaridaki bazi metrikler henuz hesaplanmamis. "
+            "Kullaniciya once 'Portfoyu Analiz Et' butonuna basmasini soyle."
+        )
     return "\n".join(context_lines)
 
 # ==========================================
@@ -59,12 +66,19 @@ Veriler:
         genai.configure(api_key=api_key)
         model = genai.GenerativeModel(
             model_name="gemini-2.5-flash",
-            system_instruction=system_prompt
+            system_instruction=system_prompt,
         )
-        response = model.generate_content("Bu portföyün risk profilini 3-4 cümlede özetle.")
-        return response.text
+        for attempt in range(2):
+            try:
+                response = model.generate_content("Bu portfoyun risk profilini 3-4 cumlede ozetle.")
+                return response.text
+            except Exception as exc:
+                if _is_quota_error(exc) and attempt == 0:
+                    time.sleep(62)
+                    continue
+                raise
     except Exception as exc:
-        print(f"AI Özet Hatası: {exc}")
+        print(f"AI Ozet Hatasi: {exc}")
         return ""
 # ==========================================
 # 3. ESKİ GÖREV: SOHBET BOTU FONKSİYONLARI
@@ -92,25 +106,39 @@ Kullanıcının güncel portföy verileri:
 {context}
 """
 
+def _is_quota_error(exc: Exception) -> bool:
+    """Gemini 429 / kota asimi hatasini tanimlar."""
+    msg = str(exc).lower()
+    return "429" in msg or "quota" in msg or "rate" in msg or "resource_exhausted" in msg
+
+
 def call_gemini_chat(messages: list, system: str) -> str:
     api_key = os.environ.get("GEMINI_API_KEY")
     if not api_key:
-        raise ValueError("GEMINI_API_KEY ortam değişkeni bulunamadı.")
-        
+        raise ValueError("GEMINI_API_KEY ortam degiskeni bulunamadi.")
+
     genai.configure(api_key=api_key)
     model = genai.GenerativeModel(
         model_name="gemini-2.5-flash",
-        system_instruction=system
+        system_instruction=system,
     )
-    
+
     gemini_history = []
     for msg in messages[:-1]:
         role = "model" if msg["role"] == "assistant" else "user"
         gemini_history.append({"role": role, "parts": [msg["content"]]})
-        
-    chat = model.start_chat(history=gemini_history)
-    response = chat.send_message(messages[-1]["content"])
-    return response.text
+
+    # Ucretsiz tier: dakikada 5 istek limiti. 1 otomatik yeniden deneme.
+    for attempt in range(2):
+        try:
+            chat = model.start_chat(history=gemini_history)
+            response = chat.send_message(messages[-1]["content"])
+            return response.text
+        except Exception as exc:
+            if _is_quota_error(exc) and attempt == 0:
+                time.sleep(62)  # 1 dakika bekle, sonra tekrar dene
+                continue
+            raise
 
 def render_portfolio_chat(summary: dict):
      # API anahtarı yoksa chatbot'u hiç gösterme
@@ -143,5 +171,12 @@ def render_portfolio_chat(summary: dict):
                     st.markdown(response_text)
                     st.session_state["chat_history"].append({"role": "assistant", "content": response_text})
                 except Exception as e:
-                    st.error(f"Yanıt alınamadı: {e}")
-                    # Hatalı mesajı geçmişe ekleme
+                    if _is_quota_error(e):
+                        st.warning(
+                            "Gemini API ucretsiz tier dakika limiti asildi (5 istek/dk). "
+                            "Lutfen ~1 dakika bekleyip tekrar deneyin. "
+                            "Surekli bu hatayi aliyorsaniz Gemini API ucretli plana gecmeyi dusunun."
+                        )
+                    else:
+                        st.error(f"Yanit alinamadi: {e}")
+                    # Hatali mesaji gecmise ekleme
