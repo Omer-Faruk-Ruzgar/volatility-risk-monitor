@@ -113,10 +113,36 @@ class GeoRiskRegion(BaseModel):
     label: str
     lat: float
     lon: float
-    score: float           # 0-10 aralik gerilim skoru
-    tickers: List[str]     # bu bolgeden etkilenen varliklar
-    headline_count: int    # skorun hesaplandigi haber sayisi
+    score: float
+    tickers: List[str]
+    headline_count: int
+    top_headlines: List[str] = []
+    description: str = ""
 
 
 class GeoRiskResponse(BaseModel):
     regions: Dict[str, GeoRiskRegion]
+
+
+class RiskEventNewsItem(BaseModel):
+    headline: str
+    source: str
+    datetime: int
+    url: str
+    compound_score: float
+    sentiment_label: str
+
+
+class RiskEvent(BaseModel):
+    date: str
+    event_types: List[str]           # ["VaR Ihlali"] veya ["Volatilite Spike"] veya ikisi
+    garch_vol: Optional[float] = None
+    return_value: Optional[float] = None
+    news: List[RiskEventNewsItem]
+    has_archive: bool                # Finnhub arsiv verisi olan donem mi
+
+
+class RiskEventsResponse(BaseModel):
+    ticker: str
+    spike_threshold: float           # GARCH spike esigi (90. yuzdeli, yillik)
+    events: List[RiskEvent]

@@ -5,6 +5,8 @@
 from dotenv import load_dotenv
 load_dotenv()
 
+import threading
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from backend.routers import router
@@ -47,10 +49,28 @@ app.include_router(router, prefix = '/api')
 # Zamanlayıcı (APScheduler) Ayarları
 scheduler = BackgroundScheduler(timezone="UTC")
 
+_ALL_TICKERS = ['XOM', 'CVX', 'USO', 'BNO', 'XLE', 'UNG', 'KSA', 'GLD', 'WEAT', 'TLT', 'SPY']
+
+
+def _warm_cache():
+    """Tum ticker'lar icin GARCH ve VaR hesaplamalarini onceden cache'e yukler."""
+    from backend import services
+    import logging
+    log = logging.getLogger("uvicorn")
+    log.info("Cache isitma basliyor (%d ticker)...", len(_ALL_TICKERS))
+    for ticker in _ALL_TICKERS:
+        try:
+            services.get_volatility(ticker)
+            services.get_var(ticker, method="parametric")
+        except Exception as e:
+            log.warning("Cache isitma hatasi (%s): %s", ticker, e)
+    log.info("Cache isitma tamamlandi.")
+
+
 @app.on_event("startup")
 def start_scheduler():
     """Uygulama ayağa kalktiğinda zamanlayiciyi başlatir."""
-    
+
     # Yaz saati: NYSE 21:00 UTC kapanır, 21:30'da güncelle
     scheduler.add_job(
         lambda: run_pipeline(update=True),
@@ -66,9 +86,13 @@ def start_scheduler():
         month='11,12,1,2', # Kasım-Şubat arası
         id='update_winter'
     )
-    
+
     scheduler.start()
     print("APScheduler aktif: Yaz/Kiş saati görevleri arka planda dinleniyor...")
+
+    # Startup cache isitma: daemon thread ile arka planda calisir,
+    # ilk kullanici istegini bloke etmez
+    threading.Thread(target=_warm_cache, daemon=True).start()
 
 
 # Data Status Endpoint'i
