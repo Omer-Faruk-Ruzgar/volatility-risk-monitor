@@ -18,8 +18,9 @@ def multi_line_chart(df: pd.DataFrame, x: str, y_cols: list, title: str):
     if not available:
         st.warning("Gösterilecek veri bulunamadı.")
         return
-    fig = px.line(df, x=x, y=available, title=title)
-    fig.update_layout(xaxis_title="Tarih", yaxis_title="Volatilite", legend_title="Model")
+    fig = px.line(df, x=x, y=available, title=title,
+                  color_discrete_sequence=["#E8A33D", "#1D9E75", "#5B9BD5"])
+    fig.update_layout(xaxis_title="Tarih", yaxis_title="Volatilite", legend_title="Model", **_CHART_LAYOUT)
     st.plotly_chart(fig, width='stretch')
 
 
@@ -68,11 +69,12 @@ def var_breach_chart(df: pd.DataFrame, ticker: str, method: str = "parametric"):
             ))
 
     fig.update_layout(
-        title=f"{ticker} — Getiri vs VaR (%95 Güven Aralığı)",
+        title=f"{ticker} - Getiri vs VaR (%95 Güven Aralığı)",
         xaxis_title="Tarih",
         yaxis_title="Günlük Getiri",
         legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
         hovermode="x unified",
+        **_CHART_LAYOUT,
     )
     st.plotly_chart(fig, width='stretch')
 
@@ -115,11 +117,11 @@ def ticker_card(ticker: str, garch_vol: float, delta: float, status: str):
             margin-bottom: 10px;
         ">
             <div style="display: flex; justify-content: space-between; align-items: center;">
-                <span style="font-weight: bold; font-size: 1.1rem; color: #1E3A5F;">{ticker}</span>
-                <span style="font-size: 0.8rem; font-weight: bold; color: {color}; background-color: {bg_color}; padding: 2px 8px; border-radius: 15px;">{badge}</span>
+                <span style="font-weight: bold; font-size: 1.1rem; color: #E8A33D;">{ticker}</span>
+                <span style="font-size: 0.75rem; font-weight: bold; color: {color}; background-color: {bg_color}; padding: 2px 10px; border-radius: 12px; border: 1px solid {color};">{badge}</span>
             </div>
             <div style="margin-top: 10px;">
-                <span style="font-size: 1.5rem; font-weight: bold; color: #333;">%{garch_vol*100:.2f}</span>
+                <span style="font-size: 1.5rem; font-weight: bold; color: #F1EFE8; font-family: 'IBM Plex Mono', monospace;">%{garch_vol*100:.2f}</span>
                 <span style="font-size: 0.9rem; color: {delta_color}; margin-left: 8px;">
                     {delta_icon} {abs(delta*100):.2f}
                 </span>
@@ -133,7 +135,7 @@ def regime_chart(df: pd.DataFrame, ticker: str):
     """Tarihsel Olaylar ve Volatilite Rejimleri (Karanlık Tema)"""
     df = df.copy()
     df["date"] = pd.to_datetime(df["date"])
-    
+
     fig = go.Figure()
 
     # 1. Ana GARCH Çizgisi
